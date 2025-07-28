@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"runtime"
 	"sort"
 	"time"
 
@@ -55,12 +56,22 @@ func runBenchmark(ctx context.Context, config Config, servers []DNSServer, domai
 	for i, server := range servers {
 		slog.Info("Benchmarking resolver", "name", server.Name, "addr", server.Addr)
 
+		start := time.Now()
+
 		stats, domainMeans := benchmarkResolver(ctx, config, server, domains)
 		results[i] = BenchmarkResult{
 			Server:     server,
 			Stats:      stats,
 			DomainMean: domainMeans,
 		}
+
+		took := time.Since(start)
+
+		slog.Info("Finished benchmarking resolver", "name", server.Name, "addr", server.Addr, "took_ms", took.Milliseconds())
+
+		runtime.GC()
+		runtime.GC()
+		time.Sleep(time.Second)
 	}
 	return results
 }
@@ -156,12 +167,22 @@ func queryDNS(
 		defer cancel()
 
 		start := time.Now()
-		_, err := netResolver.LookupHost(attemptCtx, domain)
+		addrs, err := netResolver.LookupHost(attemptCtx, domain)
 		took := time.Since(start)
 
 		if err != nil {
 			log.Debug("Failed query", "error", err)
 			return took, err
+		}
+
+		if took > timeout {
+			log.Warn("Query exceeded timeout", "took_ms", took.Milliseconds())
+			return took, context.DeadlineExceeded
+		}
+
+		if len(addrs) == 0 {
+			log.Debug("No addresses found")
+			return took, fmt.Errorf("no addresses found for domain %s by resolver %s", domain, resolver)
 		}
 
 		if took > 200*time.Millisecond {
