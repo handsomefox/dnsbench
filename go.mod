@@ -1,4 +1,4 @@
-module dnsbench
+module github.com/handsomefox/dnsbench
 
 go 1.24.5
 
