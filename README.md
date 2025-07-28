@@ -68,9 +68,9 @@ Flags:
   max concurrent DNS queries
 - `-v`
   verbose logging
-- `-o string` (default `dns_benchmark_report.csv`)
+- `-o string`
   path to main CSV report
-- `-matrix string` (default `dns_benchmark_matrix.csv`)
+- `-matrix string`
   path to matrix CSV report
 
 Reports will be written to the current directory by default.

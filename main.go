@@ -25,16 +25,21 @@ import (
 
 // Config holds all CLI configuration
 type Config struct {
-	ResolversFile      string
-	ReportPath         string
+	// What to test
+	ResolversFile string
+	SitesFile     string
+
+	// Test setup
 	LookupTimeout      time.Duration
 	Repeats            int
 	Parallel           bool
-	SitesFile          string
 	Verbose            bool
-	MatrixPath         string
-	MaxConcurrency     int
 	OnlyMajorResolvers bool
+	MaxConcurrency     int
+
+	// Reports
+	MatrixReportPath  string
+	GeneralReportPath string
 }
 
 // DNSServer represents a resolver to be benchmarked
@@ -201,7 +206,7 @@ func parseFlags() Config {
 
 	flag.StringVar(&config.ResolversFile, "f", "",
 		"Optional file with extra resolvers (name;ip)")
-	flag.StringVar(&config.ReportPath, "o", "dns_benchmark_report.csv",
+	flag.StringVar(&config.GeneralReportPath, "o", "",
 		"Path for the output CSV report")
 	flag.DurationVar(&config.LookupTimeout, "t", 2*time.Second,
 		"Timeout per DNS query (e.g. 1500ms, 2s)")
@@ -213,7 +218,7 @@ func parseFlags() Config {
 		"Optional file with domains to test (one domain per line)")
 	flag.BoolVar(&config.Verbose, "v", false,
 		"Enable verbose/debug logging")
-	flag.StringVar(&config.MatrixPath, "matrix", "dns_benchmark_matrix.csv",
+	flag.StringVar(&config.MatrixReportPath, "matrix", "",
 		"Path for the per-site matrix report (domain × resolver)")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2),
 		"Maximum concurrent DNS queries")
@@ -617,13 +622,17 @@ func calculateStats(latencies []float64, errors, total int) Stats {
 
 func generateReports(config Config, results []BenchmarkResult, domains []string) error {
 	// Generate main report
-	if err := writeMainReport(config.ReportPath, results); err != nil {
-		return fmt.Errorf("writing main report: %w", err)
+	if config.GeneralReportPath != "" {
+		if err := writeMainReport(config.GeneralReportPath, results); err != nil {
+			return fmt.Errorf("writing main report: %w", err)
+		}
 	}
 
 	// Generate matrix report
-	if err := writeMatrixReport(config.MatrixPath, results, domains); err != nil {
-		return fmt.Errorf("writing matrix report: %w", err)
+	if config.MatrixReportPath != "" {
+		if err := writeMatrixReport(config.MatrixReportPath, results, domains); err != nil {
+			return fmt.Errorf("writing matrix report: %w", err)
+		}
 	}
 
 	return nil
