@@ -16,7 +16,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -204,26 +203,16 @@ func main() {
 func parseFlags() Config {
 	var config Config
 
-	flag.StringVar(&config.ResolversFile, "f", "",
-		"Optional file with extra resolvers (name;ip)")
-	flag.StringVar(&config.GeneralReportPath, "o", "",
-		"Path for the output CSV report")
-	flag.DurationVar(&config.LookupTimeout, "t", 2*time.Second,
-		"Timeout per DNS query (e.g. 1500ms, 2s)")
-	flag.IntVar(&config.Repeats, "n", 10,
-		"Number of times each domain is queried")
-	flag.BoolVar(&config.Parallel, "p", false,
-		"Run benchmark in parallel for each DNS resolver")
-	flag.StringVar(&config.SitesFile, "s", "",
-		"Optional file with domains to test (one domain per line)")
-	flag.BoolVar(&config.Verbose, "v", false,
-		"Enable verbose/debug logging")
-	flag.StringVar(&config.MatrixReportPath, "matrix", "",
-		"Path for the per-site matrix report (domain × resolver)")
-	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2),
-		"Maximum concurrent DNS queries")
-	flag.BoolVar(&config.OnlyMajorResolvers, "major", false,
-		"Benchmark only major DNS resolvers")
+	flag.StringVar(&config.ResolversFile, "f", "", "Optional file with extra resolvers (name;ip)")
+	flag.StringVar(&config.GeneralReportPath, "o", "", "Path for the output CSV report")
+	flag.DurationVar(&config.LookupTimeout, "t", 2*time.Second, "Timeout per DNS query (e.g. 1500ms, 2s)")
+	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
+	flag.BoolVar(&config.Parallel, "p", false, "Run benchmark in parallel for each DNS resolver")
+	flag.StringVar(&config.SitesFile, "s", "", "Optional file with domains to test (one domain per line)")
+	flag.BoolVar(&config.Verbose, "v", false, "Enable verbose/debug logging")
+	flag.StringVar(&config.MatrixReportPath, "matrix", "", "Path for the per-site matrix report (domain × resolver)")
+	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
+	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), `DNS Benchmark Tool
@@ -298,10 +287,7 @@ func run(config Config) error {
 	slog.Info("loaded DNS servers", "count", len(servers))
 
 	// Run benchmark
-	results, err := runBenchmark(ctx, config, servers, domains)
-	if err != nil {
-		return fmt.Errorf("running benchmark: %w", err)
-	}
+	results := runBenchmark(ctx, config, servers, domains)
 
 	// Generate reports
 	if err := generateReports(config, results, domains); err != nil {
@@ -412,142 +398,87 @@ func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 	return servers, scanner.Err()
 }
 
-func runBenchmark(
-	ctx context.Context,
-	config Config,
-	servers []DNSServer,
-	domains []string,
-) ([]BenchmarkResult, error) {
+func runBenchmark(ctx context.Context, config Config, servers []DNSServer, domains []string) []BenchmarkResult {
 	results := make([]BenchmarkResult, len(servers))
-
-	if config.Parallel {
-		return runParallelBenchmark(ctx, config, servers, domains)
-	}
-
-	// Sequential benchmark
 	for i, server := range servers {
 		slog.Info("benchmarking resolver", "name", server.Name, "addr", server.Addr)
 
-		stats, domainMeans, err := benchmarkResolver(ctx, config, server, domains)
-		if err != nil {
-			return nil, fmt.Errorf("benchmarking %s: %w", server.Name, err)
-		}
-
+		stats, domainMeans := benchmarkResolver(ctx, config, server, domains)
 		results[i] = BenchmarkResult{
 			Server:     server,
 			Stats:      stats,
 			DomainMean: domainMeans,
 		}
 	}
-
-	return results, nil
+	return results
 }
 
-func runParallelBenchmark(
-	ctx context.Context,
-	config Config,
-	servers []DNSServer,
-	domains []string,
-) ([]BenchmarkResult, error) {
-	results := make([]BenchmarkResult, len(servers))
-	var mu sync.Mutex
-
-	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(runtime.NumCPU())
-
-	for i, server := range servers {
-		g.Go(func() error {
-			slog.Debug("benchmarking resolver", "name", server.Name, "addr", server.Addr)
-
-			stats, domainMeans, err := benchmarkResolver(ctx, config, server, domains)
-			if err != nil {
-				return fmt.Errorf("benchmarking %s: %w", server.Name, err)
-			}
-
-			mu.Lock()
-			results[i] = BenchmarkResult{
-				Server:     server,
-				Stats:      stats,
-				DomainMean: domainMeans,
-			}
-			mu.Unlock()
-
-			return nil
-		})
+func benchmarkResolver(ctx context.Context, config Config, server DNSServer, domains []string) (Stats, map[string]float64) {
+	type result struct {
+		domain  string
+		latency float64
+		err     error
 	}
 
-	return results, g.Wait()
-}
+	total := len(domains) * config.Repeats
+	results := make(chan result, total)
 
-func benchmarkResolver(
-	ctx context.Context,
-	config Config,
-	server DNSServer,
-	domains []string,
-) (Stats, map[string]float64, error) {
-	var (
-		allLatencies  []float64
-		errorCount    int
-		mu            sync.Mutex
-		domainResults = make(map[string][]float64)
-	)
-
-	g, ctx := errgroup.WithContext(ctx)
-	g.SetLimit(config.MaxConcurrency)
-
-	totalQueries := len(domains) * config.Repeats
+	errg, ctx := errgroup.WithContext(ctx)
+	errg.SetLimit(config.MaxConcurrency)
 
 	for _, domain := range domains {
 		for range config.Repeats {
-			g.Go(func() error {
-				latency, err := queryDNS(ctx, domain, server.Addr, config.LookupTimeout)
+			errg.Go(func() error {
+				qCtx, cancel := context.WithTimeout(ctx, config.LookupTimeout)
+				defer cancel()
 
-				mu.Lock()
-				defer mu.Unlock()
-
+				lat, err := queryDNS(qCtx, domain, server.Addr, config.LookupTimeout)
 				if err != nil {
-					errorCount++
-					if errors.Is(err, context.DeadlineExceeded) {
-						slog.Debug("DNS query timeout",
-							"resolver", server.Name,
-							"domain", domain,
-							"timeout", config.LookupTimeout)
-					} else {
-						slog.Debug("DNS query error",
-							"resolver", server.Name,
-							"domain", domain,
-							"error", err)
+					results <- result{domain: domain, err: err}
+				} else {
+					results <- result{
+						domain:  domain,
+						latency: lat.Seconds() * 1000,
 					}
-					return nil
 				}
-
-				latencyMs := latency.Seconds() * 1000
-				allLatencies = append(allLatencies, latencyMs)
-				domainResults[domain] = append(domainResults[domain], latencyMs)
 
 				return nil
 			})
 		}
 	}
 
-	if err := g.Wait(); err != nil {
-		return Stats{}, nil, err
-	}
+	// once all lookups are done (or parent ctx canceled), close the channel
+	go func() {
+		_ = errg.Wait()
+		close(results)
+	}()
 
-	// Calculate domain means
-	domainMeans := make(map[string]float64)
-	for domain, latencies := range domainResults {
-		if len(latencies) > 0 {
-			sum := 0.0
-			for _, lat := range latencies {
-				sum += lat
-			}
-			domainMeans[domain] = sum / float64(len(latencies))
+	var (
+		allLatencies  = make([]float64, 0, total)
+		perDomainLats = make(map[string][]float64, len(domains))
+		errorCount    int
+	)
+	for r := range results {
+		if r.err != nil {
+			errorCount++
+			continue
 		}
+		allLatencies = append(allLatencies, r.latency)
+		perDomainLats[r.domain] = append(perDomainLats[r.domain], r.latency)
 	}
 
-	stats := calculateStats(allLatencies, errorCount, totalQueries)
-	return stats, domainMeans, nil
+	// compute per‐domain means
+	domainMeans := make(map[string]float64, len(perDomainLats))
+	for d, lats := range perDomainLats {
+		sum := 0.0
+		for _, v := range lats {
+			sum += v
+		}
+		domainMeans[d] = sum / float64(len(lats))
+	}
+
+	stats := calculateStats(allLatencies, errorCount, total)
+	return stats, domainMeans
 }
 
 func queryDNS(
