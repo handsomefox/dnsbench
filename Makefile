@@ -4,7 +4,7 @@ PKG := ./...
 # default flags for the benchmark;
 #   make run N=10 TIMEOUT=2s
 N ?= 10
-TIMEOUT ?= 2s
+TIMEOUT ?= 3s
 RESFILE ?=               # e.g. -f myresolvers.txt
 
 .PHONY: all build run bench fmt vet tidy test clean
