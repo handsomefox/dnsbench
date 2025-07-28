@@ -49,10 +49,9 @@ func printSummary(results []BenchmarkResult) {
 			result.Stats.Max)
 	}
 
-	fmt.Println(strings.Repeat("-", 80))
-
 	// Add failed resolvers section
 	if len(failedResults) > 0 {
+		fmt.Println(strings.Repeat("-", 80))
 		fmt.Println("\nFAILED RESOLVERS:")
 		fmt.Println(strings.Repeat("-", 80))
 		fmt.Printf("%-20s %10s %10s\n", "Resolver", "Address", "Errors")
@@ -66,9 +65,8 @@ func printSummary(results []BenchmarkResult) {
 		}
 	}
 
-	fmt.Println(strings.Repeat("-", 80))
-
 	if len(validResults) > 0 {
+		fmt.Println(strings.Repeat("-", 80))
 		fmt.Printf("Tested %d resolvers with %d total queries each\n",
 			len(results),
 			validResults[0].Stats.Total)
