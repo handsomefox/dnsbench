@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 
@@ -22,7 +23,7 @@ func main() {
 	)
 	slog.SetDefault(logger)
 
-	slog.Debug("Starting", "config", config)
+	slog.Debug("Starting", "config", fmt.Sprintf("%#v", config))
 	if err := run(config); err != nil {
 		slog.Error("benchmark failed", "error", err)
 		os.Exit(1)
