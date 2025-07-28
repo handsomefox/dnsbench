@@ -1,4 +1,4 @@
-BIN := dnsbench
+BIN := ./bin/dnsbench
 PKG := ./...
 
 # default flags for the benchmark;
