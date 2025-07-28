@@ -25,15 +25,16 @@ import (
 
 // Config holds all CLI configuration
 type Config struct {
-	ResolversFile  string
-	ReportPath     string
-	LookupTimeout  time.Duration
-	Repeats        int
-	Parallel       bool
-	SitesFile      string
-	Verbose        bool
-	MatrixPath     string
-	MaxConcurrency int
+	ResolversFile      string
+	ReportPath         string
+	LookupTimeout      time.Duration
+	Repeats            int
+	Parallel           bool
+	SitesFile          string
+	Verbose            bool
+	MatrixPath         string
+	MaxConcurrency     int
+	OnlyMajorResolvers bool
 }
 
 // DNSServer represents a resolver to be benchmarked
@@ -118,6 +119,19 @@ var (
 		{Name: "LibreDNS-Alt", Addr: "116.203.115.192"},
 	}
 
+	builtinMajorResolvers = []DNSServer{
+		{Name: "Cloudflare", Addr: "1.1.1.1"},
+		{Name: "Cloudflare-Alt", Addr: "1.0.0.1"},
+		{Name: "Google", Addr: "8.8.8.8"},
+		{Name: "Google-Alt", Addr: "8.8.4.4"},
+		{Name: "Quad9", Addr: "9.9.9.9"},
+		{Name: "Quad9-Alt", Addr: "149.112.112.112"},
+		{Name: "NextDNS", Addr: "45.90.28.0"},
+		{Name: "NextDNS-Alt", Addr: "45.90.30.0"},
+		{Name: "AdGuard", Addr: "94.140.14.14"},
+		{Name: "AdGuard-Alt", Addr: "94.140.15.15"},
+	}
+
 	defaultSites = []string{
 		// Search engines
 		"google.com", "bing.com", "duckduckgo.com", "yahoo.com",
@@ -166,7 +180,6 @@ var (
 func main() {
 	config := parseFlags()
 
-	// Setup structured logging
 	level := slog.LevelInfo
 	if config.Verbose {
 		level = slog.LevelDebug
@@ -204,6 +217,8 @@ func parseFlags() Config {
 		"Path for the per-site matrix report (domain × resolver)")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2),
 		"Maximum concurrent DNS queries")
+	flag.BoolVar(&config.OnlyMajorResolvers, "major", false,
+		"Benchmark only major DNS resolvers")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), `DNS Benchmark Tool
@@ -270,7 +285,7 @@ func run(config Config) error {
 	slog.Info("loaded domains", "count", len(domains))
 
 	// Load DNS servers
-	servers, err := loadServers(config.ResolversFile)
+	servers, err := loadServers(config.ResolversFile, config.OnlyMajorResolvers)
 	if err != nil {
 		return fmt.Errorf("loading servers: %w", err)
 	}
@@ -337,11 +352,15 @@ func loadDomains(sitesFile string) ([]string, error) {
 	return domains, nil
 }
 
-func loadServers(resolversFile string) ([]DNSServer, error) {
-	servers := make([]DNSServer, len(builtInResolvers))
-	copy(servers, builtInResolvers)
+func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
+	servers := make([]DNSServer, 0)
 
 	if resolversFile == "" {
+		if onlyMajor {
+			servers = append(servers, builtinMajorResolvers...)
+		} else {
+			servers = append(servers, builtInResolvers...)
+		}
 		return servers, nil
 	}
 
@@ -475,8 +494,6 @@ func benchmarkResolver(
 
 	for _, domain := range domains {
 		for range config.Repeats {
-			domain := domain // capture loop variable
-
 			g.Go(func() error {
 				latency, err := queryDNS(ctx, domain, server.Addr, config.LookupTimeout)
 
