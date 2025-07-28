@@ -12,8 +12,8 @@ RESFILE ?=               # e.g. -f myresolvers.txt
 all: build
 
 build:
-	go build -tags netgo -o $(BIN) .
-	GOOS=windows GOARCH=amd64 go build -tags netgo -o $(BIN).exe .
+	go build -ldflags '-w -s' -tags netgo -o $(BIN) .
+	GOOS=windows GOARCH=amd64 go build -ldflags '-w -s' -tags netgo -o $(BIN).exe .
 
 run: build
 	./$(BIN) -n $(N) -t $(TIMEOUT) $(RESFILE)
