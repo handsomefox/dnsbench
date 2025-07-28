@@ -94,8 +94,8 @@ func retryWithBackoff[T any](
 			return val, nil
 		}
 
-		jitter := time.Duration(rand.N(int64(backoff))) - backoff/2
-		wait := backoff + jitter
+		jitter := time.Duration(rand.N(backoff))
+		wait := backoff/2 + jitter
 
 		select {
 		case <-ctx.Done():
