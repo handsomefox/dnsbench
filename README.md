@@ -22,7 +22,7 @@ A simple CLI tool to benchmark DNS resolvers against a list of domains, measurin
 Build locally (requires Go 1.24+):
 
 ```bash
-https://github.com/handsomefox/dnsbench.git
+git clone https://github.com/handsomefox/dnsbench.git
 cd dnsbench
 go mod tidy
 make build
