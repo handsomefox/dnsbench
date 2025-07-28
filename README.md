@@ -9,7 +9,6 @@ A simple CLI tool to benchmark DNS resolvers against a list of domains, measurin
 - Default popular domains list; can supply your own (`-s domains.txt`)
 - Configurable number of repeats per domain (`-n`)
 - Configurable per-query timeout (`-t`)
-- Optional parallel resolver benchmarking (`-p`)
 - Adjustable concurrency (`-c`)
 - Generates two CSV reports:
   - **Main report**: per-resolver summary (`dns_benchmark_report.csv`)
@@ -62,8 +61,6 @@ Flags:
   number of repeats per domain
 - `-t duration` (default 2s)
   DNS query timeout
-- `-p`
-  benchmark resolvers in parallel
 - `-c int` (default `max(CPU/2,2)`)
   max concurrent DNS queries
 - `-v`
