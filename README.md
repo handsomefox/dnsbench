@@ -10,8 +10,8 @@ A simple CLI tool to benchmark DNS resolvers against a list of domains, measurin
 - Configurable number of repeats per domain (`-n`)
 - Configurable per-query timeout (`-t`)
 - Adjustable concurrency (`-c`)
-- Pretty-printed summary in terminal
-- Verbose/debug logging
+- Multiple output formats (default, table, CSV)
+- Configurable logging levels (default, verbose, disabled)
 
 ## Installation
 
@@ -44,6 +44,18 @@ This produces `dnsbench` (and `dnsbench.exe` for Windows).
 # More repeats, longer timeout
 ./dnsbench -n 20 -t 5s
 
+# Output results in CSV format
+./dnsbench -output csv
+
+# Output as a simple table without formatting
+./dnsbench -output table
+
+# Disable logging
+./dnsbench -log disabled
+
+# Verbose logging with CSV output
+./dnsbench -log verbose -output csv
+
 # Custom resolvers list, custom concurrency
 ./dnsbench -f myresolvers.txt -c 8
 
@@ -69,8 +81,10 @@ This produces `dnsbench` (and `dnsbench.exe` for Windows).
   Timeout per DNS query (e.g. 1500ms, 2s)
 - `-c int` (default max(CPU/2, 2))
   Maximum concurrent DNS queries
-- `-v`
-  Enable verbose/debug logging
+- `-output string` (default "default")
+  Output format: "default", "csv", or "table"
+- `-log string` (default "default")
+  Logging level: "default", "verbose", or "disabled"
 - `-o string`
   Path for the output CSV report
 - `-matrix string`

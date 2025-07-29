@@ -25,14 +25,55 @@ type Config struct {
 	// Test setup
 	LookupTimeout      time.Duration
 	Repeats            int
-	Verbose            bool
 	OnlyMajorResolvers bool
 	MaxConcurrency     int
+
+	// Output and logging
+	OutputType OutputType
+	LogType    LogType
 }
 
-func run(config *Config) error {
+type OutputType int
+
+const (
+	OutputDefault OutputType = iota
+	OutputCSV
+	OutputTable
+)
+
+func (o OutputType) String() string {
+	switch o {
+	case OutputCSV:
+		return "csv"
+	case OutputTable:
+		return "table"
+	default:
+		return "default"
+	}
+}
+
+type LogType int
+
+const (
+	LogDefault LogType = iota
+	LogVerbose
+	LogDisabled
+)
+
+func (l LogType) String() string {
+	switch l {
+	case LogVerbose:
+		return "verbose"
+	case LogDisabled:
+		return "disabled"
+	default:
+		return "default"
+	}
+}
+
+func run(ctx context.Context, config *Config) error {
 	ctx, cancel := signal.NotifyContext(
-		context.Background(),
+		ctx,
 		syscall.SIGINT,
 		syscall.SIGTERM,
 	)
@@ -44,7 +85,7 @@ func run(config *Config) error {
 		return fmt.Errorf("loading domains: %w", err)
 	}
 
-	slog.Info("Loaded domains", slog.Int("count", len(domains)))
+	slog.LogAttrs(ctx, slog.LevelInfo, "Loaded domains", slog.Int("count", len(domains)))
 
 	// Load DNS servers
 	servers, err := loadServers(config.ResolversFile, config.OnlyMajorResolvers)
@@ -52,13 +93,13 @@ func run(config *Config) error {
 		return fmt.Errorf("loading servers: %w", err)
 	}
 
-	slog.Info("Loaded DNS servers", slog.Int("count", len(servers)))
+	slog.LogAttrs(ctx, slog.LevelInfo, "Loaded DNS servers", slog.Int("count", len(servers)))
 
 	// Run benchmark
 	results := runBenchmark(ctx, config, servers, domains)
 
 	// Print summary
-	printSummary(results)
+	printSummary(results, config.OutputType)
 
 	return nil
 }
@@ -66,11 +107,17 @@ func run(config *Config) error {
 func parseFlags() *Config {
 	var config Config
 
+	var (
+		outputType string
+		logType    string
+	)
+
 	flag.StringVar(&config.ResolversFile, "f", "", "Optional file with extra resolvers (name;ip)")
 	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout per DNS query (e.g. 1500ms, 2s)")
 	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
 	flag.StringVar(&config.SitesFile, "s", "", "Optional file with domains to test (one domain per line)")
-	flag.BoolVar(&config.Verbose, "v", false, "Enable verbose/debug logging")
+	flag.StringVar(&outputType, "output", "default", "Output format: default, csv, or table")
+	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
 
@@ -116,6 +163,32 @@ Examples:
 
 	if config.LookupTimeout < 100*time.Millisecond {
 		fmt.Fprintf(os.Stderr, "Error: timeout must be at least 100ms\n")
+		os.Exit(1)
+	}
+
+	// Parse output type
+	switch strings.ToLower(outputType) {
+	case "default":
+		config.OutputType = OutputDefault
+	case "csv":
+		config.OutputType = OutputCSV
+	case "table":
+		config.OutputType = OutputTable
+	default:
+		fmt.Fprintf(os.Stderr, "Error: invalid output type %q\n", outputType)
+		os.Exit(1)
+	}
+
+	// Parse log type
+	switch strings.ToLower(logType) {
+	case "default":
+		config.LogType = LogDefault
+	case "verbose":
+		config.LogType = LogVerbose
+	case "disabled":
+		config.LogType = LogDisabled
+	default:
+		fmt.Fprintf(os.Stderr, "Error: invalid log type %q\n", logType)
 		os.Exit(1)
 	}
 

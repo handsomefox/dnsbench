@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -9,23 +10,33 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
 	config := parseFlags()
 
-	level := slog.LevelInfo
-	if config.Verbose {
-		level = slog.LevelDebug
-	}
+	initLogger(config.LogType)
 
-	logger := slog.New(
-		console.NewHandler(os.Stderr, &console.HandlerOptions{
-			Level: level,
-		}),
-	)
-	slog.SetDefault(logger)
-
-	slog.Debug("Starting", slog.Any("config", fmt.Sprintf("%#v", config)))
-	if err := run(config); err != nil {
-		slog.Error("Benchmark failed", slogErr(err))
+	slog.LogAttrs(ctx, slog.LevelDebug, "Starting", slog.Any("config", fmt.Sprintf("%#v", config)))
+	if err := run(ctx, config); err != nil {
+		slog.ErrorContext(ctx, "Benchmark failed", slogErr(err))
 		os.Exit(1)
 	}
+}
+
+func initLogger(logType LogType) {
+	var handler slog.Handler
+	switch logType {
+	case LogVerbose:
+		handler = console.NewHandler(os.Stderr, &console.HandlerOptions{
+			Level: slog.LevelDebug,
+		})
+	case LogDisabled:
+		handler = slog.DiscardHandler
+	default:
+		handler = console.NewHandler(os.Stderr, &console.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
+	}
+
+	logger := slog.New(handler)
+	slog.SetDefault(logger)
 }
