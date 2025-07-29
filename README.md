@@ -38,39 +38,50 @@ This produces `dnsbench` (and `dnsbench.exe` for Windows).
 ## Usage
 
 ```bash
-# Default benchmark (10 repeats, 2s timeout)
+# Default benchmark (10 repeats, 3s timeout)
 ./dnsbench
 
+# Recommended: 10 repeats, 4-way concurrency, only major resolvers
+./dnsbench -n=10 -c=4 -major=true
+
 # More repeats, longer timeout
-./dnsbench -n 20 -t 3s
+./dnsbench -n 20 -t 5s
 
 # Custom resolvers list, custom concurrency
 ./dnsbench -f myresolvers.txt -c 8
 
 # Custom domains list
 ./dnsbench -s mydomains.txt
+
+# Only benchmark major resolvers
+./dnsbench -major
+
+# Custom output paths
+./dnsbench -o summary.csv -matrix matrix.csv
 ```
 
-Flags:
+### Flags
 
 - `-f string`
-  optional resolvers file (`name;ip` per line)
+  Optional file with extra resolvers (`name;ip` per line)
 - `-s string`
-  optional domains file (one domain per line)
+  Optional file with domains to test (one domain per line)
 - `-n int` (default 10)
-  number of repeats per domain
-- `-t duration` (default 2s)
-  DNS query timeout
-- `-c int` (default `max(CPU/2,2)`)
-  max concurrent DNS queries
+  Number of times each domain is queried (must be 1–100)
+- `-t duration` (default 3s)
+  Timeout per DNS query (e.g. 1500ms, 2s)
+- `-c int` (default max(CPU/2, 2))
+  Maximum concurrent DNS queries
 - `-v`
-  verbose logging
+  Enable verbose/debug logging
 - `-o string`
-  path to main CSV report
+  Path for the output CSV report
 - `-matrix string`
-  path to matrix CSV report
+  Path for the per-site matrix report (domain × resolver)
+- `-major`
+  Benchmark only major DNS resolvers
 
-Reports will be written to the current directory by default.
+Reports will be written to the current directory by default unless `-o` or `-matrix` are specified.
 
 ## Makefile
 
