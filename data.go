@@ -3,59 +3,68 @@ package main
 var (
 	builtInResolvers = []DNSServer{
 		// Major providers
-		{Name: "Cloudflare", Addr: "1.1.1.1"},
-		{Name: "Cloudflare-Alt", Addr: "1.0.0.1"},
-		{Name: "Google", Addr: "8.8.8.8"},
-		{Name: "Google-Alt", Addr: "8.8.4.4"},
-		{Name: "Quad9", Addr: "9.9.9.9"},
-		{Name: "Quad9-Alt", Addr: "149.112.112.112"},
-		{Name: "OpenDNS", Addr: "208.67.222.222"},
-		{Name: "OpenDNS-Alt", Addr: "208.67.220.220"},
+		{Name: "Cloudflare-1", Addr: "1.1.1.1"},
+		{Name: "Cloudflare-2", Addr: "1.0.0.1"},
+		{Name: "Google-1", Addr: "8.8.8.8"},
+		{Name: "Google-2", Addr: "8.8.4.4"},
+		{Name: "Quad9-1", Addr: "9.9.9.9"},
+		{Name: "Quad9-2", Addr: "149.112.112.112"},
+		{Name: "Quad9-ECS-1", Addr: "9.9.9.11"},
+		{Name: "Quad9-ECS-2", Addr: "149.112.112.11"},
+		{Name: "OpenDNS-1", Addr: "208.67.222.222"},
+		{Name: "OpenDNS-2", Addr: "208.67.220.220"},
 
 		// Ad-blocking and filtering
-		{Name: "AdGuard", Addr: "94.140.14.14"},
-		{Name: "AdGuard-Alt", Addr: "94.140.15.15"},
-		{Name: "CleanBrowsing", Addr: "185.228.168.9"},
-		{Name: "CleanBrowsing-Alt", Addr: "185.228.169.9"},
-		{Name: "NextDNS", Addr: "45.90.28.0"},
-		{Name: "NextDNS-Alt", Addr: "45.90.30.0"},
-		{Name: "ControlD", Addr: "76.76.2.0"},
-		{Name: "ControlD-Alt", Addr: "76.76.10.0"},
+		{Name: "AdGuard-1", Addr: "94.140.14.14"},
+		{Name: "AdGuard-2", Addr: "94.140.15.15"},
+		{Name: "CleanBrowsing-1", Addr: "185.228.168.9"},
+		{Name: "CleanBrowsing-2", Addr: "185.228.169.9"},
+		{Name: "NextDNS-1", Addr: "45.90.28.0"},
+		{Name: "NextDNS-2", Addr: "45.90.30.0"},
+		{Name: "ControlD-1", Addr: "76.76.2.0"},
+		{Name: "ControlD-2", Addr: "76.76.10.0"},
 
 		// Privacy-focused
-		{Name: "Mullvad", Addr: "194.242.2.2"},
-		{Name: "Mullvad-Alt", Addr: "194.242.2.3"},
-		{Name: "DNS0-EU", Addr: "193.110.81.0"},
-		{Name: "DNS0-EU-Alt", Addr: "185.253.5.0"},
-		{Name: "UncensoredDNS", Addr: "91.239.100.100"},
-		{Name: "UncensoredDNS-Alt", Addr: "89.233.43.71"},
+		{Name: "Mullvad-1", Addr: "194.242.2.2"},
+		{Name: "Mullvad-2", Addr: "194.242.2.3"},
+		{Name: "DNS0-EU-1", Addr: "193.110.81.0"},
+		{Name: "DNS0-EU-2", Addr: "185.253.5.0"},
+		{Name: "UncensoredDNS-1", Addr: "91.239.100.100"},
+		{Name: "UncensoredDNS-2", Addr: "89.233.43.71"},
 
 		// Regional/National
-		{Name: "AliDNS", Addr: "223.5.5.5"},
-		{Name: "AliDNS-Alt", Addr: "223.6.6.6"},
-		{Name: "DNSPod", Addr: "119.29.29.29"},
-		{Name: "DNSPod-Alt", Addr: "119.28.28.28"},
-		{Name: "Canadian-Shield", Addr: "149.112.121.10"},
-		{Name: "Canadian-Shield-Alt", Addr: "149.112.122.10"},
+		{Name: "AliDNS-1", Addr: "223.5.5.5"},
+		{Name: "AliDNS-2", Addr: "223.6.6.6"},
+		{Name: "DNSPod-1", Addr: "119.29.29.29"},
+		{Name: "DNSPod-2", Addr: "119.28.28.28"},
+		{Name: "Canadian-Shield-1", Addr: "149.112.121.10"},
+		{Name: "Canadian-Shield-2", Addr: "149.112.122.10"},
 
 		// Alternative providers
-		{Name: "DNS-SB", Addr: "185.222.222.222"},
-		{Name: "DNS-SB-Alt", Addr: "45.11.45.11"},
-		{Name: "LibreDNS", Addr: "116.202.176.26"},
-		{Name: "LibreDNS-Alt", Addr: "116.203.115.192"},
+		{Name: "DNS-SB-1", Addr: "185.222.222.222"},
+		{Name: "DNS-SB-2", Addr: "45.11.45.11"},
+		{Name: "LibreDNS-1", Addr: "116.202.176.26"},
+		{Name: "LibreDNS-2", Addr: "116.203.115.192"},
 	}
 
 	builtinMajorResolvers = []DNSServer{
-		{Name: "Cloudflare", Addr: "1.1.1.1"},
-		{Name: "Cloudflare-Alt", Addr: "1.0.0.1"},
-		{Name: "Google", Addr: "8.8.8.8"},
-		{Name: "Google-Alt", Addr: "8.8.4.4"},
-		{Name: "Quad9", Addr: "9.9.9.9"},
-		{Name: "Quad9-Alt", Addr: "149.112.112.112"},
-		{Name: "NextDNS", Addr: "45.90.28.0"},
-		{Name: "NextDNS-Alt", Addr: "45.90.30.0"},
-		{Name: "AdGuard", Addr: "94.140.14.14"},
-		{Name: "AdGuard-Alt", Addr: "94.140.15.15"},
+		{Name: "Cloudflare-1", Addr: "1.1.1.1"},
+		{Name: "Cloudflare-2", Addr: "1.0.0.1"},
+
+		{Name: "Google-1", Addr: "8.8.8.8"},
+		{Name: "Google-2", Addr: "8.8.4.4"},
+
+		{Name: "Quad9-1", Addr: "9.9.9.9"},
+		{Name: "Quad9-2", Addr: "149.112.112.112"},
+
+		{Name: "Quad9-ECS-1", Addr: "9.9.9.11"},
+		{Name: "Quad9-ECS-2", Addr: "149.112.112.11"},
+
+		{Name: "NextDNS-1", Addr: "45.90.28.0"},
+		{Name: "NextDNS-2", Addr: "45.90.30.0"},
+
+		{Name: "AdGuard-1", Addr: "94.140.14.14"},
+		{Name: "AdGuard-2", Addr: "94.140.15.15"},
 	}
 
 	defaultSites = []string{
