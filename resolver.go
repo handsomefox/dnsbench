@@ -20,25 +20,32 @@ type Resolver struct {
 	netResolver *net.Resolver
 	netDialer   *net.Dialer
 	serverAddr  string
+	concurrency int
+	sem         chan struct{}
 }
 
-func NewResolver(serverAddr string) Resolver {
+func NewResolver(serverAddr string, concurrency int) *Resolver {
 	dialer := &net.Dialer{
 		Timeout: 2 * time.Second,
 	}
-	return Resolver{
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	return &Resolver{
 		netResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 				return dialer.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
 			},
 		},
-		netDialer:  dialer,
-		serverAddr: serverAddr,
+		netDialer:   dialer,
+		serverAddr:  serverAddr,
+		concurrency: concurrency,
+		sem:         make(chan struct{}, concurrency),
 	}
 }
 
-func (r Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retry ResolverRetry) (time.Duration, error) {
+func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retry ResolverRetry) (time.Duration, error) {
 	if domain == "" {
 		return 0, errors.New("empty domain name")
 	}
@@ -47,6 +54,12 @@ func (r Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Dura
 		slog.String("domain", domain),
 		slog.String("resolver", r.serverAddr),
 	)
+
+	// Acquire semaphore for concurrency control
+	if r.sem != nil && r.concurrency > 0 {
+		r.sem <- struct{}{}
+		defer func() { <-r.sem }()
+	}
 
 	try := func(attempt int) (time.Duration, error) {
 		log := log.With(slog.Int("attempt", attempt))
