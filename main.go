@@ -23,9 +23,9 @@ func main() {
 	)
 	slog.SetDefault(logger)
 
-	slog.Debug("Starting", "config", fmt.Sprintf("%#v", config))
+	slog.Debug("Starting", slog.Any("config", fmt.Sprintf("%#v", config)))
 	if err := run(config); err != nil {
-		slog.Error("benchmark failed", "error", err)
+		slog.Error("Benchmark failed", slogErr(err))
 		os.Exit(1)
 	}
 }

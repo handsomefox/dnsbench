@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand/v2"
 	"runtime"
@@ -133,4 +134,11 @@ func gcAndWait() {
 	runtime.GC()
 	runtime.GC()
 	time.Sleep(50 * time.Millisecond)
+}
+
+func slogErr(err error) slog.Attr {
+	if err != nil {
+		return slog.String("err", err.Error())
+	}
+	return slog.String("err", "<nil>")
 }

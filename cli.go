@@ -34,7 +34,7 @@ type Config struct {
 	GeneralReportPath string
 }
 
-func run(config Config) error {
+func run(config *Config) error {
 	ctx, cancel := signal.NotifyContext(
 		context.Background(),
 		syscall.SIGINT,
@@ -48,7 +48,7 @@ func run(config Config) error {
 		return fmt.Errorf("loading domains: %w", err)
 	}
 
-	slog.Info("Loaded domains", "count", len(domains))
+	slog.Info("Loaded domains", slog.Int("count", len(domains)))
 
 	// Load DNS servers
 	servers, err := loadServers(config.ResolversFile, config.OnlyMajorResolvers)
@@ -56,7 +56,7 @@ func run(config Config) error {
 		return fmt.Errorf("loading servers: %w", err)
 	}
 
-	slog.Info("Loaded DNS servers", "count", len(servers))
+	slog.Info("Loaded DNS servers", slog.Int("count", len(servers)))
 
 	// Run benchmark
 	results := runBenchmark(ctx, config, servers, domains)
@@ -72,7 +72,7 @@ func run(config Config) error {
 	return nil
 }
 
-func parseFlags() Config {
+func parseFlags() *Config {
 	var config Config
 
 	flag.StringVar(&config.ResolversFile, "f", "", "Optional file with extra resolvers (name;ip)")
@@ -130,7 +130,7 @@ Examples:
 		os.Exit(1)
 	}
 
-	return config
+	return &config
 }
 
 func loadDomains(sitesFile string) ([]string, error) {
@@ -158,7 +158,10 @@ func loadDomains(sitesFile string) ([]string, error) {
 
 		// Basic domain validation
 		if !isValidDomain(line) {
-			slog.Warn("Skipping invalid domain", "line", lineNum, "domain", line)
+			slog.Warn("Skipping invalid domain",
+				slog.Int("line", lineNum),
+				slog.String("domain", line),
+			)
 			continue
 		}
 
@@ -207,7 +210,10 @@ func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 
 		parts := strings.Split(line, ";")
 		if len(parts) != 2 {
-			slog.Warn("Skipping malformed line", "line", lineNum, "content", line)
+			slog.Warn("Skipping malformed line",
+				slog.Int("line", lineNum),
+				slog.String("content", line),
+			)
 			continue
 		}
 
@@ -215,13 +221,16 @@ func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 		addr := strings.TrimSpace(parts[1])
 
 		if name == "" || addr == "" {
-			slog.Warn("Skipping empty name or address", "line", lineNum)
+			slog.Warn("Skipping empty name or address", slog.Int("line", lineNum))
 			continue
 		}
 
 		// Basic IP validation
 		if net.ParseIP(addr) == nil {
-			slog.Warn("Skipping invalid IP address", "line", lineNum, "ip", addr)
+			slog.Warn("Skipping invalid IP address",
+				slog.Int("line", lineNum),
+				slog.String("ip", addr),
+			)
 			continue
 		}
 

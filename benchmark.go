@@ -2,11 +2,8 @@ package main
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
 	"math"
-	"net"
 	"sort"
 	"time"
 
@@ -50,15 +47,18 @@ func (s Stats) SuccessRate() float64 {
 	return float64(s.Count) / float64(s.Total)
 }
 
-func runBenchmark(ctx context.Context, config Config, servers []DNSServer, domains []string) []BenchmarkResult {
+func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, domains []string) []BenchmarkResult {
 	results := make([]BenchmarkResult, len(servers))
 	for i, server := range servers {
 		if cErr := ctx.Err(); cErr != nil {
-			slog.Error("Context error, ending the benchmark", "error", cErr)
+			slog.Error("Context error, ending the benchmark", slogErr(cErr))
 			return results
 		}
 
-		slog.Info("Benchmarking resolver", "name", server.Name, "addr", server.Addr)
+		slog.Info("Benchmarking resolver",
+			slog.String("name", server.Name),
+			slog.String("addr", server.Addr),
+		)
 
 		start := time.Now()
 
@@ -71,7 +71,11 @@ func runBenchmark(ctx context.Context, config Config, servers []DNSServer, domai
 
 		took := time.Since(start)
 
-		slog.Info("Finished benchmarking resolver", "name", server.Name, "addr", server.Addr, "took_ms", took.Milliseconds())
+		slog.Info("Finished benchmarking resolver",
+			slog.String("name", server.Name),
+			slog.String("addr", server.Addr),
+			slog.Int64("took_ms", took.Milliseconds()),
+		)
 
 		// Cool off after each server.
 		gcAndWait()
@@ -79,7 +83,7 @@ func runBenchmark(ctx context.Context, config Config, servers []DNSServer, domai
 	return results
 }
 
-func benchmarkResolver(ctx context.Context, config Config, server DNSServer, domains []string) (Stats, map[string]float64) {
+func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, domains []string) (Stats, map[string]float64) {
 	type result struct {
 		domain  string
 		latency float64
@@ -92,10 +96,13 @@ func benchmarkResolver(ctx context.Context, config Config, server DNSServer, dom
 	errg, ctx := errgroup.WithContext(ctx)
 	errg.SetLimit(config.MaxConcurrency)
 
+	// Create resolver once.
+	resolver := NewResolver(server.Addr)
+
 	for range config.Repeats {
 		for _, domain := range domains {
 			errg.Go(func() error {
-				lat, err := queryDNS(ctx, domain, server.Addr, config.LookupTimeout)
+				lat, err := resolver.QueryDNS(ctx, domain, config.LookupTimeout)
 				if err != nil {
 					results <- result{domain: domain, err: err}
 				} else {
@@ -108,13 +115,13 @@ func benchmarkResolver(ctx context.Context, config Config, server DNSServer, dom
 				return nil
 			})
 		}
-		// Cool off after each round.
-		gcAndWait()
 	}
 
 	// once all lookups are done (or parent ctx canceled), close the channel
 	go func() {
-		_ = errg.Wait()
+		if err := errg.Wait(); err != nil {
+			panic(err)
+		}
 		close(results)
 	}()
 
@@ -144,68 +151,6 @@ func benchmarkResolver(ctx context.Context, config Config, server DNSServer, dom
 
 	stats := calculateStats(allLatencies, errorCount, total)
 	return stats, domainMeans
-}
-
-func queryDNS(
-	ctx context.Context,
-	domain, resolver string,
-	timeout time.Duration,
-) (time.Duration, error) {
-	dialer := &net.Dialer{}
-	netResolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(dialCtx context.Context, network, address string) (net.Conn, error) {
-			return dialer.DialContext(dialCtx, "udp", net.JoinHostPort(resolver, "53"))
-		},
-	}
-
-	log := slog.With("domain", domain, "resolver", resolver)
-
-	try := func(attempt int) (time.Duration, error) {
-		log := log.With("attempt", attempt)
-
-		if attempt > 0 {
-			log.Debug("Attempting query again")
-		}
-
-		attemptCtx, cancel := context.WithTimeout(ctx, timeout)
-		defer cancel()
-
-		start := time.Now()
-		addrs, err := netResolver.LookupHost(attemptCtx, domain)
-		took := time.Since(start)
-
-		if err != nil {
-			log.Debug("Failed query", "error", err)
-			return took, err
-		}
-
-		if took > timeout {
-			log.Debug("Query exceeded timeout", "took_ms", took.Milliseconds())
-			return took, context.DeadlineExceeded
-		}
-
-		if len(addrs) == 0 {
-			log.Debug("No addresses found")
-			return took, fmt.Errorf("no addresses found for domain %s by resolver %s", domain, resolver)
-		}
-
-		if took > 200*time.Millisecond {
-			log.Debug("Slow query", "took_ms", took.Milliseconds())
-		}
-
-		return took, nil
-	}
-
-	elapsed, err := retryWithBackoff(ctx, try, 10, 2*time.Second, 60*time.Second) // Delay from 2 to 60 seconds, max 10 tries
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return 0, fmt.Errorf("DNS query timeout for %s via %s: %w", domain, resolver, err)
-		}
-		return 0, fmt.Errorf("DNS query failed for %s via %s: %w", domain, resolver, err)
-	}
-
-	return elapsed, nil
 }
 
 func calculateStats(latencies []float64, errors, total int) Stats {

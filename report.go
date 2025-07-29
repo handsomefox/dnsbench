@@ -8,7 +8,7 @@ import (
 	"strconv"
 )
 
-func generateReports(config Config, results []BenchmarkResult, domains []string) error {
+func generateReports(config *Config, results []BenchmarkResult, domains []string) error {
 	// Generate main report
 	if config.GeneralReportPath != "" {
 		if err := writeMainReport(config.GeneralReportPath, results); err != nil {
@@ -64,7 +64,7 @@ func writeMainReport(path string, results []BenchmarkResult) error {
 		}
 	}
 
-	slog.Info("Main report written", "path", path)
+	slog.Info("Main report written", slog.String("path", path))
 	return nil
 }
 
@@ -105,6 +105,6 @@ func writeMatrixReport(path string, results []BenchmarkResult, domains []string)
 		}
 	}
 
-	slog.Info("Matrix report written", "path", path)
+	slog.Info("Matrix report written", slog.String("path", path))
 	return nil
 }
