@@ -10,9 +10,6 @@ A simple CLI tool to benchmark DNS resolvers against a list of domains, measurin
 - Configurable number of repeats per domain (`-n`)
 - Configurable per-query timeout (`-t`)
 - Adjustable concurrency (`-c`)
-- Generates two CSV reports:
-  - **Main report**: per-resolver summary (`dns_benchmark_report.csv`)
-  - **Matrix report**: per-domain × per-resolver latencies (`dns_benchmark_matrix.csv`)
 - Pretty-printed summary in terminal
 - Verbose/debug logging
 

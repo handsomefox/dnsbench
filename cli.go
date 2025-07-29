@@ -28,10 +28,6 @@ type Config struct {
 	Verbose            bool
 	OnlyMajorResolvers bool
 	MaxConcurrency     int
-
-	// Reports
-	MatrixReportPath  string
-	GeneralReportPath string
 }
 
 func run(config *Config) error {
@@ -61,11 +57,6 @@ func run(config *Config) error {
 	// Run benchmark
 	results := runBenchmark(ctx, config, servers, domains)
 
-	// Generate reports
-	if err := generateReports(config, results, domains); err != nil {
-		return fmt.Errorf("generating reports: %w", err)
-	}
-
 	// Print summary
 	printSummary(results)
 
@@ -76,12 +67,10 @@ func parseFlags() *Config {
 	var config Config
 
 	flag.StringVar(&config.ResolversFile, "f", "", "Optional file with extra resolvers (name;ip)")
-	flag.StringVar(&config.GeneralReportPath, "o", "", "Path for the output CSV report")
 	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout per DNS query (e.g. 1500ms, 2s)")
 	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
 	flag.StringVar(&config.SitesFile, "s", "", "Optional file with domains to test (one domain per line)")
 	flag.BoolVar(&config.Verbose, "v", false, "Enable verbose/debug logging")
-	flag.StringVar(&config.MatrixReportPath, "matrix", "", "Path for the per-site matrix report (domain × resolver)")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
 
