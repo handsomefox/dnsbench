@@ -25,9 +25,7 @@ type Resolver struct {
 }
 
 func NewResolver(serverAddr string, concurrency int) *Resolver {
-	dialer := &net.Dialer{
-		Timeout: 2 * time.Second,
-	}
+	dialer := &net.Dialer{}
 	if concurrency < 1 {
 		concurrency = 1
 	}
