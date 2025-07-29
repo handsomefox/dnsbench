@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -48,6 +49,8 @@ func printByType(t OutputType, valid, failed []BenchmarkResult) {
 	case OutputTable:
 		printResultsTable(os.Stdout, valid, false)
 		printResultsTable(os.Stderr, failed, true)
+	case OutputJSON:
+		printResultsJSON(valid, failed)
 	default:
 		printDefaultSummary(valid, failed)
 	}
@@ -195,4 +198,58 @@ func slogErr(err error) slog.Attr {
 		return slog.String("err", err.Error())
 	}
 	return slog.String("err", "<nil>")
+}
+
+func printResultsJSON(valid, failed []BenchmarkResult) {
+	type Summary struct {
+		TotalResolvers   int              `json:"total_resolvers"`
+		SuccessResolvers int              `json:"success_resolvers"`
+		FailedResolvers  int              `json:"failed_resolvers"`
+		OverallSuccess   float64          `json:"overall_success_rate"`
+		Fastest          *BenchmarkResult `json:"fastest_resolver,omitempty"`
+		Slowest          *BenchmarkResult `json:"slowest_resolver,omitempty"`
+	}
+
+	all := append([]BenchmarkResult{}, valid...)
+	all = append(all, failed...)
+
+	var fastest, slowest *BenchmarkResult
+	if len(valid) > 0 {
+		fastest = &valid[0]
+		slowest = &valid[len(valid)-1]
+	}
+
+	totalQueries := 0
+	totalSuccess := 0
+	for _, r := range valid {
+		totalQueries += r.Stats.Total
+		totalSuccess += r.Stats.Count
+	}
+	overallSuccess := 0.0
+	if totalQueries > 0 {
+		overallSuccess = float64(totalSuccess) / float64(totalQueries)
+	}
+
+	summary := Summary{
+		TotalResolvers:   len(all),
+		SuccessResolvers: len(valid),
+		FailedResolvers:  len(failed),
+		OverallSuccess:   overallSuccess * 100,
+		Fastest:          fastest,
+		Slowest:          slowest,
+	}
+
+	output := struct {
+		Summary  Summary           `json:"summary"`
+		Results  []BenchmarkResult `json:"results"`
+		Failures []BenchmarkResult `json:"failures"`
+	}{
+		Summary:  summary,
+		Results:  valid,
+		Failures: failed,
+	}
+
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(output)
 }

@@ -9,19 +9,20 @@ import (
 	"time"
 )
 
+type ResolverRetry bool
+
 const (
-	RESOLVER_RETRY_ENABLED  = true
-	RESOLVER_RETRY_DISABLED = false
+	ResolverRetryDisabled ResolverRetry = false
+	ResolverRetryEnabled  ResolverRetry = true
 )
 
 type Resolver struct {
-	netResolver   *net.Resolver
-	netDialer     *net.Dialer
-	serverAddr    string
-	retryRequests bool
+	netResolver *net.Resolver
+	netDialer   *net.Dialer
+	serverAddr  string
 }
 
-func NewResolver(serverAddr string, retryRequests bool) Resolver {
+func NewResolver(serverAddr string) Resolver {
 	dialer := &net.Dialer{
 		Timeout: 2 * time.Second,
 	}
@@ -32,13 +33,12 @@ func NewResolver(serverAddr string, retryRequests bool) Resolver {
 				return dialer.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
 			},
 		},
-		netDialer:     dialer,
-		serverAddr:    serverAddr,
-		retryRequests: retryRequests,
+		netDialer:  dialer,
+		serverAddr: serverAddr,
 	}
 }
 
-func (r Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration) (time.Duration, error) {
+func (r Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retry ResolverRetry) (time.Duration, error) {
 	if domain == "" {
 		return 0, errors.New("empty domain name")
 	}
@@ -85,7 +85,7 @@ func (r Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Dura
 	}
 
 	retries := 10
-	if !r.retryRequests {
+	if !retry {
 		retries = 1
 	}
 

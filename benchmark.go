@@ -18,8 +18,8 @@ type DNSServer struct {
 
 // BenchmarkResult contains the results for a single resolver
 type BenchmarkResult struct {
-	Server DNSServer
-	Stats  Stats
+	Server DNSServer `json:"server"`
+	Stats  Stats     `json:"stats"`
 }
 
 // Stats contains latency statistics for a resolver
@@ -105,12 +105,27 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	errg, ctx := errgroup.WithContext(ctx)
 	errg.SetLimit(config.MaxConcurrency)
 
-	resolver := NewResolver(server.Addr, RESOLVER_RETRY_ENABLED)
+	resolver := NewResolver(server.Addr)
 
 	for range config.Repeats {
 		for _, domain := range domains {
 			errg.Go(func() error {
-				lat, err := resolver.QueryDNS(ctx, domain, config.LookupTimeout)
+				// Do warmup for this domain if configured
+				if config.WarmupRuns > 0 {
+					slog.LogAttrs(ctx, slog.LevelDebug, "Performing warmup queries",
+						slog.Int("warmup_runs", config.WarmupRuns),
+						slog.String("domain", domain),
+						slog.String("resolver", server.Addr),
+					)
+					for range config.WarmupRuns {
+						_, _ = resolver.QueryDNS(ctx, domain, config.LookupTimeout, ResolverRetryDisabled)
+					}
+					gcAndWait()
+					// Sleep a bit to avoid rate limiting issues
+					time.Sleep(50 * time.Millisecond)
+				}
+
+				lat, err := resolver.QueryDNS(ctx, domain, config.LookupTimeout, ResolverRetryEnabled)
 				if err != nil {
 					results <- result{domain: domain, err: err}
 				} else {

@@ -31,6 +31,8 @@ type Config struct {
 	// Output and logging
 	OutputType OutputType
 	LogType    LogType
+
+	WarmupRuns int
 }
 
 type OutputType int
@@ -39,6 +41,7 @@ const (
 	OutputDefault OutputType = iota
 	OutputCSV
 	OutputTable
+	OutputJSON
 )
 
 func (o OutputType) String() string {
@@ -47,6 +50,8 @@ func (o OutputType) String() string {
 		return "csv"
 	case OutputTable:
 		return "table"
+	case OutputJSON:
+		return "json"
 	default:
 		return "default"
 	}
@@ -110,16 +115,18 @@ func parseFlags() *Config {
 	var (
 		outputType string
 		logType    string
+		warmupRuns int
 	)
 
 	flag.StringVar(&config.ResolversFile, "f", "", "Optional file with extra resolvers (name;ip)")
 	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout per DNS query (e.g. 1500ms, 2s)")
 	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
 	flag.StringVar(&config.SitesFile, "s", "", "Optional file with domains to test (one domain per line)")
-	flag.StringVar(&outputType, "output", "default", "Output format: default, csv, or table")
+	flag.StringVar(&outputType, "output", "default", "Output format: default, csv, table, or json")
 	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
+	flag.IntVar(&warmupRuns, "warmup", 0, "Number of warmup queries per resolver/domain before benchmarking")
 
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), `DNS Benchmark Tool
@@ -151,8 +158,8 @@ Examples:
 	flag.Parse()
 
 	// Validate configuration
-	if config.Repeats < 1 || config.Repeats > 100 {
-		fmt.Fprintf(os.Stderr, "Error: repeats must be between 1 and 100\n")
+	if config.Repeats < 1 {
+		fmt.Fprintf(os.Stderr, "Error: repeats must be at least 1\n")
 		os.Exit(1)
 	}
 
@@ -174,10 +181,14 @@ Examples:
 		config.OutputType = OutputCSV
 	case "table":
 		config.OutputType = OutputTable
+	case "json":
+		config.OutputType = OutputJSON
 	default:
 		fmt.Fprintf(os.Stderr, "Error: invalid output type %q\n", outputType)
 		os.Exit(1)
 	}
+
+	config.WarmupRuns = warmupRuns
 
 	// Parse log type
 	switch strings.ToLower(logType) {
