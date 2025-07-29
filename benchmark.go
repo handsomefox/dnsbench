@@ -46,6 +46,16 @@ func (s Stats) SuccessRate() float64 {
 }
 
 func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, domains []string) []BenchmarkResult {
+	if len(servers) == 0 {
+		slog.LogAttrs(ctx, slog.LevelError, "No DNS servers provided")
+		return nil
+	}
+
+	if len(domains) == 0 {
+		slog.LogAttrs(ctx, slog.LevelError, "No domains provided")
+		return nil
+	}
+
 	results := make([]BenchmarkResult, len(servers))
 	for i, server := range servers {
 		if cErr := ctx.Err(); cErr != nil {
@@ -56,6 +66,8 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 		slog.LogAttrs(ctx, slog.LevelInfo, "Benchmarking resolver",
 			slog.String("name", server.Name),
 			slog.String("addr", server.Addr),
+			slog.Int("progress", i+1),
+			slog.Int("total", len(servers)),
 		)
 
 		start := time.Now()
@@ -67,11 +79,11 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 		}
 
 		took := time.Since(start)
-
 		slog.LogAttrs(ctx, slog.LevelInfo, "Finished benchmarking resolver",
 			slog.String("name", server.Name),
 			slog.String("addr", server.Addr),
 			slog.Int64("took_ms", took.Milliseconds()),
+			slog.Float64("success_rate", stats.SuccessRate()*100),
 		)
 
 		// Cool off after each server.
@@ -93,7 +105,6 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	errg, ctx := errgroup.WithContext(ctx)
 	errg.SetLimit(config.MaxConcurrency)
 
-	// Create resolver once.
 	resolver := NewResolver(server.Addr, RESOLVER_RETRY_ENABLED)
 
 	for range config.Repeats {
@@ -108,7 +119,6 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 						latency: lat.Seconds() * 1000,
 					}
 				}
-
 				return nil
 			})
 		}
@@ -117,23 +127,23 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	// once all lookups are done (or parent ctx canceled), close the channel
 	go func() {
 		if err := errg.Wait(); err != nil {
-			panic(err)
+			slog.LogAttrs(ctx, slog.LevelError, "Unexpected worker pool error", slogErr(err))
 		}
 		close(results)
 	}()
 
 	var (
-		allLatencies  = make([]float64, 0, total)
-		perDomainLats = make(map[string][]float64, len(domains))
-		errorCount    int
+		allLatencies = make([]float64, 0, total)
+		errorCount   int
 	)
+
+	// Collect results
 	for r := range results {
 		if r.err != nil {
 			errorCount++
 			continue
 		}
 		allLatencies = append(allLatencies, r.latency)
-		perDomainLats[r.domain] = append(perDomainLats[r.domain], r.latency)
 	}
 
 	return calculateStats(allLatencies, errorCount, total)

@@ -22,7 +22,9 @@ type Resolver struct {
 }
 
 func NewResolver(serverAddr string, retryRequests bool) Resolver {
-	dialer := &net.Dialer{}
+	dialer := &net.Dialer{
+		Timeout: 2 * time.Second,
+	}
 	return Resolver{
 		netResolver: &net.Resolver{
 			PreferGo: true,
@@ -37,6 +39,10 @@ func NewResolver(serverAddr string, retryRequests bool) Resolver {
 }
 
 func (r Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration) (time.Duration, error) {
+	if domain == "" {
+		return 0, errors.New("empty domain name")
+	}
+
 	log := slog.With(
 		slog.String("domain", domain),
 		slog.String("resolver", r.serverAddr),

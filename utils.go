@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -12,7 +13,11 @@ import (
 )
 
 func printSummary(results []BenchmarkResult) {
-	// Filter valid results and sort by success rate, then by mean latency
+	if len(results) == 0 {
+		fmt.Println("\nNo benchmark results to display")
+		return
+	}
+
 	var validResults []BenchmarkResult
 	var failedResults []BenchmarkResult
 	for _, result := range results {
@@ -36,40 +41,42 @@ func printSummary(results []BenchmarkResult) {
 	fmt.Println("\n" + strings.Repeat("=", 80))
 	fmt.Println("DNS BENCHMARK RESULTS - TOP PERFORMERS")
 	fmt.Println(strings.Repeat("=", 80))
-	fmt.Printf("%-20s %10s %10s %10s %10s\n",
-		"Resolver", "Success%", "Mean(ms)", "Min(ms)", "Max(ms)")
+	fmt.Printf("%-20s %10s %10s %10s %10s %10s\n",
+		"Resolver", "Success%", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
 	fmt.Println(strings.Repeat("-", 80))
 
-	for i := range validResults {
-		result := validResults[i]
-		fmt.Printf("%-20s %9.1f%% %9.2f %9.2f %9.2f\n",
+	for _, result := range validResults {
+		fmt.Printf("%-20s %9.1f%% %9.2f %9.2f %9.2f %10d\n",
 			truncateString(result.Server.Name, 20),
 			result.Stats.SuccessRate()*100,
 			result.Stats.Mean,
 			result.Stats.Min,
-			result.Stats.Max)
+			result.Stats.Max,
+			result.Stats.Total)
 	}
 
-	// Add failed resolvers section
 	if len(failedResults) > 0 {
 		fmt.Println(strings.Repeat("-", 80))
 		fmt.Println("\nFAILED RESOLVERS:")
 		fmt.Println(strings.Repeat("-", 80))
-		fmt.Printf("%-20s %10s %10s\n", "Resolver", "Address", "Errors")
+		fmt.Printf("%-20s %-15s %10s %10s\n",
+			"Resolver", "Address", "Errors", "Total")
 		fmt.Println(strings.Repeat("-", 80))
 
 		for _, result := range failedResults {
-			fmt.Printf("%-20s %10s %10d\n",
+			fmt.Printf("%-20s %-15s %10d %10d\n",
 				truncateString(result.Server.Name, 20),
 				result.Server.Addr,
-				result.Stats.Errors)
+				result.Stats.Errors,
+				result.Stats.Total)
 		}
 	}
 
 	if len(validResults) > 0 {
 		fmt.Println(strings.Repeat("-", 80))
-		fmt.Printf("Tested %d resolvers with %d total queries each\n",
-			len(results),
+		fmt.Printf("Summary: %d resolvers tested successfully, %d failed\n",
+			len(validResults), len(failedResults))
+		fmt.Printf("Each resolver processed %d total queries\n",
 			validResults[0].Stats.Total)
 	}
 }
@@ -81,6 +88,10 @@ func retryWithBackoff[T any](
 	initialBackoff time.Duration,
 	maxBackoff time.Duration,
 ) (val T, err error) {
+	if maxRetries < 1 {
+		return val, errors.New("maxRetries must be positive")
+	}
+
 	backoff := min(initialBackoff, maxBackoff)
 
 	for attempt := range maxRetries {
@@ -91,6 +102,10 @@ func retryWithBackoff[T any](
 		val, err = f(attempt)
 		if err == nil {
 			return val, nil
+		}
+
+		if attempt == maxRetries-1 {
+			break
 		}
 
 		jitter := time.Duration(rand.N(backoff))
@@ -112,10 +127,16 @@ func isValidDomain(domain string) bool {
 	if len(domain) == 0 || len(domain) > 253 {
 		return false
 	}
-	return !strings.Contains(domain, " ") && strings.Contains(domain, ".")
+	return !strings.Contains(domain, " ") &&
+		strings.Contains(domain, ".") &&
+		!strings.HasPrefix(domain, ".") &&
+		!strings.HasSuffix(domain, ".")
 }
 
 func truncateString(s string, maxLen int) string {
+	if maxLen < 4 {
+		return s
+	}
 	if len(s) <= maxLen {
 		return s
 	}

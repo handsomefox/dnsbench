@@ -168,6 +168,9 @@ func loadDomains(sitesFile string) ([]string, error) {
 	return domains, nil
 }
 
+// loadServers loads DNS servers from a file or uses built-in resolvers.
+// Format: name;ip per line. Comments start with #.
+// If resolversFile is empty, built-in resolvers are used based on onlyMajor flag.
 func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 	servers := make([]DNSServer, 0)
 
@@ -182,7 +185,7 @@ func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 
 	file, err := os.Open(resolversFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("opening resolvers file: %w", err)
 	}
 	defer file.Close()
 
@@ -199,32 +202,31 @@ func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 
 		parts := strings.Split(line, ";")
 		if len(parts) != 2 {
-			slog.Warn("Skipping malformed line",
-				slog.Int("line", lineNum),
-				slog.String("content", line),
-			)
-			continue
+			return nil, fmt.Errorf("invalid format at line %d: expected 'name;ip'", lineNum)
 		}
 
 		name := strings.TrimSpace(parts[0])
 		addr := strings.TrimSpace(parts[1])
 
 		if name == "" || addr == "" {
-			slog.Warn("Skipping empty name or address", slog.Int("line", lineNum))
-			continue
+			return nil, fmt.Errorf("empty name or IP at line %d", lineNum)
 		}
 
 		// Basic IP validation
 		if net.ParseIP(addr) == nil {
-			slog.Warn("Skipping invalid IP address",
-				slog.Int("line", lineNum),
-				slog.String("ip", addr),
-			)
-			continue
+			return nil, fmt.Errorf("invalid IP address at line %d: %s", lineNum, addr)
 		}
 
 		servers = append(servers, DNSServer{Name: name, Addr: addr})
 	}
 
-	return servers, scanner.Err()
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("reading resolvers file: %w", err)
+	}
+
+	if len(servers) == 0 {
+		return nil, errors.New("no valid resolvers found in file")
+	}
+
+	return servers, nil
 }
