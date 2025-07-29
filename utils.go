@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
 	"math/rand/v2"
 	"runtime"
 	"sort"
@@ -114,13 +113,6 @@ func isValidDomain(domain string) bool {
 		return false
 	}
 	return !strings.Contains(domain, " ") && strings.Contains(domain, ".")
-}
-
-func formatFloat(f float64) string {
-	if math.IsNaN(f) {
-		return ""
-	}
-	return fmt.Sprintf("%.2f", f)
 }
 
 func truncateString(s string, maxLen int) string {

@@ -9,13 +9,19 @@ import (
 	"time"
 )
 
+const (
+	RESOLVER_RETRY_ENABLED  = true
+	RESOLVER_RETRY_DISABLED = false
+)
+
 type Resolver struct {
-	netResolver *net.Resolver
-	netDialer   *net.Dialer
-	serverAddr  string
+	netResolver   *net.Resolver
+	netDialer     *net.Dialer
+	serverAddr    string
+	retryRequests bool
 }
 
-func NewResolver(serverAddr string) Resolver {
+func NewResolver(serverAddr string, retryRequests bool) Resolver {
 	dialer := &net.Dialer{}
 	return Resolver{
 		netResolver: &net.Resolver{
@@ -24,8 +30,9 @@ func NewResolver(serverAddr string) Resolver {
 				return dialer.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
 			},
 		},
-		netDialer:  dialer,
-		serverAddr: serverAddr,
+		netDialer:     dialer,
+		serverAddr:    serverAddr,
+		retryRequests: retryRequests,
 	}
 }
 
@@ -71,7 +78,12 @@ func (r Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Dura
 		return took, nil
 	}
 
-	elapsed, err := retryWithBackoff(ctx, try, 10, 2*time.Second, 60*time.Second) // Delay from 2 to 60 seconds, max 10 tries
+	retries := 10
+	if !r.retryRequests {
+		retries = 1
+	}
+
+	elapsed, err := retryWithBackoff(ctx, try, retries, 2*time.Second, 60*time.Second) // Delay from 2 to 60 seconds, max 10 tries
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return 0, fmt.Errorf("DNS query timeout for %s via %s: %w", domain, r.serverAddr, err)

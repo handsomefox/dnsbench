@@ -94,7 +94,7 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	errg.SetLimit(config.MaxConcurrency)
 
 	// Create resolver once.
-	resolver := NewResolver(server.Addr)
+	resolver := NewResolver(server.Addr, RESOLVER_RETRY_ENABLED)
 
 	for range config.Repeats {
 		for _, domain := range domains {
