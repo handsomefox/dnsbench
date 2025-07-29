@@ -39,8 +39,8 @@ This produces `dnsbench` (and `dnsbench.exe` for Windows).
 # Default benchmark (10 repeats, 3s timeout)
 ./dnsbench
 
-# Recommended: 10 repeats, 4-way concurrency, only major resolvers
-./dnsbench -n=10 -c=4 -major=true
+# Recommended
+./dnsbench -log=disabled -c=8 -n=5 -major=true -output=table -warmup=2
 
 # More repeats, longer timeout
 ./dnsbench -n 20 -t 5s
