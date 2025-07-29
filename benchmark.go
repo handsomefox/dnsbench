@@ -54,6 +54,11 @@ func (s Stats) SuccessRate() float64 {
 func runBenchmark(ctx context.Context, config Config, servers []DNSServer, domains []string) []BenchmarkResult {
 	results := make([]BenchmarkResult, len(servers))
 	for i, server := range servers {
+		if cErr := ctx.Err(); cErr != nil {
+			slog.Error("Context error, ending the benchmark", "error", cErr)
+			return results
+		}
+
 		slog.Info("Benchmarking resolver", "name", server.Name, "addr", server.Addr)
 
 		start := time.Now()
@@ -176,7 +181,7 @@ func queryDNS(
 		}
 
 		if took > timeout {
-			log.Warn("Query exceeded timeout", "took_ms", took.Milliseconds())
+			log.Debug("Query exceeded timeout", "took_ms", took.Milliseconds())
 			return took, context.DeadlineExceeded
 		}
 
