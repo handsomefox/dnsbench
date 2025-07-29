@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -126,4 +127,10 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+func gcAndWait() {
+	runtime.GC()
+	runtime.GC()
+	time.Sleep(50 * time.Millisecond)
 }

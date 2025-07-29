@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"net"
-	"runtime"
 	"sort"
 	"time"
 
@@ -74,9 +73,8 @@ func runBenchmark(ctx context.Context, config Config, servers []DNSServer, domai
 
 		slog.Info("Finished benchmarking resolver", "name", server.Name, "addr", server.Addr, "took_ms", took.Milliseconds())
 
-		runtime.GC()
-		runtime.GC()
-		time.Sleep(time.Second)
+		// Cool off after each server.
+		gcAndWait()
 	}
 	return results
 }
@@ -110,6 +108,8 @@ func benchmarkResolver(ctx context.Context, config Config, server DNSServer, dom
 				return nil
 			})
 		}
+		// Cool off after each round.
+		gcAndWait()
 	}
 
 	// once all lookups are done (or parent ctx canceled), close the channel
