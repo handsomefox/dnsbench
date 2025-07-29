@@ -31,14 +31,9 @@ Or install directly:
 go install github.com/handsomefox/dnsbench@latest
 ```
 
-This produces `dnsbench` (and `dnsbench.exe` for Windows).
-
 ## Usage
 
 ```bash
-# Default benchmark (10 repeats, 3s timeout)
-./dnsbench
-
 # Recommended
 ./dnsbench -log=disabled -c=8 -n=5 -major=true -output=table -warmup=2
 
@@ -71,26 +66,19 @@ This produces `dnsbench` (and `dnsbench.exe` for Windows).
 
 # Perform 3 warmup queries per resolver/domain before benchmarking
 ./dnsbench --warmup 3
-
-# Custom output paths
-./dnsbench -o summary.csv -matrix matrix.csv
 ```
 
 ### Flags
 
-- `-f string` Optional file with extra resolvers (`name;ip` per line)
-- `-s string` Optional file with domains to test (one domain per line)
-- `-n int` (default 10) Number of times each domain is queried (must be 1–100)
+- `-f string` Optional file with resolvers (`name;ip` per line)
+- `-s string` Optional file with domains (one domain per line)
+- `-n int` Number of times each domain is queried
 - `-t duration` Timeout per DNS query (e.g. 1500ms, 2s)
-- `-c int` Maximum concurrent DNS queries (default max(CPU/2, 2))
+- `-c int` Maximum concurrent DNS queries
 - `-output string` Output format: "default", "csv", "table", or "json"
 - `-log string` Logging level: "default", "verbose", or "disabled"
-- `-o string` Path for the output CSV report
-- `-matrix string` Path for the per-site matrix report (domain × resolver)
 - `-major` Benchmark only major DNS resolvers
 - `--warmup int` Number of warmup queries per resolver/domain before benchmarking
-
-Reports will be written to the current directory by default unless `-o` or `-matrix` are specified.
 
 ### Example JSON Output Structure
 
@@ -118,12 +106,11 @@ Reports will be written to the current directory by default unless `-o` or `-mat
 
 ## Makefile
 
+- `make all` - run tests, compile for host OS and Windows
 - `make build` – compile binaries
+- `make build-windows` - compile binaries for Windows
 - `make run` – build and run with default flags
-- `make fmt` – run `gofmt`
-- `make vet` – run `go vet`
-- `make test` – run tests (if any)
-- `make clean` – remove binaries
+- `make test` - run tests
 
 ## License
 
