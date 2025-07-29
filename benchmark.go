@@ -18,9 +18,8 @@ type DNSServer struct {
 
 // BenchmarkResult contains the results for a single resolver
 type BenchmarkResult struct {
-	Server     DNSServer
-	Stats      Stats
-	DomainMean map[string]float64
+	Server DNSServer
+	Stats  Stats
 }
 
 // Stats contains latency statistics for a resolver
@@ -28,7 +27,6 @@ type Stats struct {
 	Min    float64
 	Max    float64
 	Mean   float64
-	Median float64
 	Count  int
 	Errors int
 	Total  int
@@ -51,27 +49,26 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 	results := make([]BenchmarkResult, len(servers))
 	for i, server := range servers {
 		if cErr := ctx.Err(); cErr != nil {
-			slog.Error("Context error, ending the benchmark", slogErr(cErr))
+			slog.LogAttrs(ctx, slog.LevelError, "Context error, ending the benchmark", slogErr(cErr))
 			return results
 		}
 
-		slog.Info("Benchmarking resolver",
+		slog.LogAttrs(ctx, slog.LevelInfo, "Benchmarking resolver",
 			slog.String("name", server.Name),
 			slog.String("addr", server.Addr),
 		)
 
 		start := time.Now()
 
-		stats, domainMeans := benchmarkResolver(ctx, config, server, domains)
+		stats := benchmarkResolver(ctx, config, server, domains)
 		results[i] = BenchmarkResult{
-			Server:     server,
-			Stats:      stats,
-			DomainMean: domainMeans,
+			Server: server,
+			Stats:  stats,
 		}
 
 		took := time.Since(start)
 
-		slog.Info("Finished benchmarking resolver",
+		slog.LogAttrs(ctx, slog.LevelInfo, "Finished benchmarking resolver",
 			slog.String("name", server.Name),
 			slog.String("addr", server.Addr),
 			slog.Int64("took_ms", took.Milliseconds()),
@@ -83,7 +80,7 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 	return results
 }
 
-func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, domains []string) (Stats, map[string]float64) {
+func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, domains []string) Stats {
 	type result struct {
 		domain  string
 		latency float64
@@ -139,18 +136,7 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 		perDomainLats[r.domain] = append(perDomainLats[r.domain], r.latency)
 	}
 
-	// compute per‐domain means
-	domainMeans := make(map[string]float64, len(perDomainLats))
-	for d, lats := range perDomainLats {
-		sum := 0.0
-		for _, v := range lats {
-			sum += v
-		}
-		domainMeans[d] = sum / float64(len(lats))
-	}
-
-	stats := calculateStats(allLatencies, errorCount, total)
-	return stats, domainMeans
+	return calculateStats(allLatencies, errorCount, total)
 }
 
 func calculateStats(latencies []float64, errors, total int) Stats {
@@ -159,7 +145,6 @@ func calculateStats(latencies []float64, errors, total int) Stats {
 			Min:    math.NaN(),
 			Max:    math.NaN(),
 			Mean:   math.NaN(),
-			Median: math.NaN(),
 			Count:  0,
 			Errors: errors,
 			Total:  total,
@@ -173,16 +158,10 @@ func calculateStats(latencies []float64, errors, total int) Stats {
 		sum += lat
 	}
 
-	median := latencies[len(latencies)/2]
-	if len(latencies)%2 == 0 && len(latencies) > 1 {
-		median = (latencies[len(latencies)/2-1] + latencies[len(latencies)/2]) / 2
-	}
-
 	return Stats{
 		Min:    latencies[0],
 		Max:    latencies[len(latencies)-1],
 		Mean:   sum / float64(len(latencies)),
-		Median: median,
 		Count:  len(latencies),
 		Errors: errors,
 		Total:  total,
