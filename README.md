@@ -2,6 +2,8 @@
 
 A simple CLI tool to benchmark DNS resolvers against a list of domains, measuring latency and success rate, and producing reports in multiple formats (CSV, table, JSON).
 
+Now ships with an embedded Web UI dashboard for live monitoring and control.
+
 ## Features
 
 - Built-in list of major, privacy-focused, regional, and alternative DNS resolvers
@@ -13,6 +15,7 @@ A simple CLI tool to benchmark DNS resolvers against a list of domains, measurin
 - Multiple output formats: default, table, CSV, and JSON for integration with other tools
 - Configurable logging levels (default, verbose, disabled)
 - Warmup runs: Optionally perform warmup queries before benchmarking to reduce cold-start effects (`--warmup N`)
+- Embedded Web UI dashboard (`-ui`) with live SSE updates, configurable domains/resolvers, and result tables
 
 ## Installation
 
@@ -66,6 +69,9 @@ go install github.com/handsomefox/dnsbench@latest
 
 # Perform 3 warmup queries per resolver/domain before benchmarking
 ./dnsbench --warmup 3
+
+# Start the Web UI dashboard on port 8080
+./dnsbench -ui -listen :8080
 ```
 
 ### Flags
@@ -79,6 +85,8 @@ go install github.com/handsomefox/dnsbench@latest
 - `-log string` Logging level: "default", "verbose", or "disabled"
 - `-major` Benchmark only major DNS resolvers
 - `--warmup int` Number of warmup queries per resolver/domain before benchmarking
+- `-ui` Start the embedded Web UI server instead of running the CLI benchmark
+- `-listen string` Address for the Web UI server (default `:8080`)
 
 ### Example JSON Output Structure
 
@@ -106,11 +114,13 @@ go install github.com/handsomefox/dnsbench@latest
 
 ## Makefile
 
-- `make all` - run tests, compile for host OS and Windows
-- `make build` – compile binaries
-- `make build-windows` - compile binaries for Windows
-- `make run` – build and run with default flags
-- `make test` - run tests
+- `make build` – build UI, run tests, compile host binary
+- `make build-windows` - build UI, run tests, compile Windows binary
+- `make run` – build and run CLI with defaults (N/TIMEOUT overridable)
+- `make run-ui` – build everything then launch the Web UI at http://localhost:8080
+- `make ui-install` – install front-end dependencies
+- `make ui-build` – build the static Web UI (Vite)
+- `make ui-dev` – start the Vite dev server for UI work
 
 ## License
 

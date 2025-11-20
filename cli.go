@@ -33,6 +33,10 @@ type Config struct {
 	LogType    LogType
 
 	WarmupRuns int
+
+	// Web UI
+	ServeUI    bool
+	ListenAddr string
 }
 
 type OutputType int
@@ -101,7 +105,10 @@ func run(ctx context.Context, config *Config) error {
 	slog.LogAttrs(ctx, slog.LevelInfo, "Loaded DNS servers", slog.Int("count", len(servers)))
 
 	// Run benchmark
-	results := runBenchmark(ctx, config, servers, domains)
+	results, err := runBenchmark(ctx, config, servers, domains, NoopReporter{})
+	if err != nil {
+		return fmt.Errorf("benchmark run failed: %w", err)
+	}
 
 	// Print summary
 	printSummary(results, config.OutputType)
@@ -116,6 +123,8 @@ func parseFlags() *Config {
 		outputType string
 		logType    string
 		warmupRuns int
+		serveUI    bool
+		listenAddr string
 	)
 
 	flag.StringVar(&config.ResolversFile, "f", "", "Optional file with extra resolvers (name;ip)")
@@ -127,9 +136,12 @@ func parseFlags() *Config {
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Number of warmup queries per resolver/domain before benchmarking")
+	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
+	flag.StringVar(&listenAddr, "listen", ":8080", "Address for the Web UI HTTP server (used with -ui)")
 
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), `DNS Benchmark Tool
+		//nolint:errcheck // best-effort help output
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), `DNS Benchmark Tool
 
 Test DNS resolvers against popular websites to measure latency and reliability.
 
@@ -139,7 +151,8 @@ Usage:
 Options:
 `)
 		flag.PrintDefaults()
-		fmt.Fprintf(flag.CommandLine.Output(), `
+		//nolint:errcheck // best-effort help output
+		_, _ = fmt.Fprintf(flag.CommandLine.Output(), `
 Examples:
   # Default benchmark
   dnsbench
@@ -189,6 +202,8 @@ Examples:
 	}
 
 	config.WarmupRuns = warmupRuns
+	config.ServeUI = serveUI
+	config.ListenAddr = listenAddr
 
 	// Parse log type
 	switch strings.ToLower(logType) {
@@ -211,11 +226,16 @@ func loadDomains(sitesFile string) ([]string, error) {
 		return defaultSites, nil
 	}
 
+	//nolint:gosec // file path provided by user intentionally
 	file, err := os.Open(sitesFile)
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "failed to close sites file: %v\n", cerr)
+		}
+	}()
 
 	var domains []string
 	scanner := bufio.NewScanner(file)
@@ -267,11 +287,16 @@ func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 		return servers, nil
 	}
 
+	//nolint:gosec // file path provided by user intentionally
 	file, err := os.Open(resolversFile)
 	if err != nil {
 		return nil, fmt.Errorf("opening resolvers file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "failed to close resolvers file: %v\n", cerr)
+		}
+	}()
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0

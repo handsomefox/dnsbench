@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/phsym/console-slog"
 )
@@ -14,6 +16,18 @@ func main() {
 	config := parseFlags()
 
 	initLogger(config.LogType)
+
+	if config.ServeUI {
+		ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+
+		if err := serveDashboard(ctx, config); err != nil {
+			slog.ErrorContext(ctx, "UI server failed", slogErr(err))
+			cancel()
+			os.Exit(1)
+		}
+		cancel()
+		return
+	}
 
 	slog.LogAttrs(ctx, slog.LevelDebug, "Starting", slog.Any("config", fmt.Sprintf("%#v", config)))
 	if err := run(ctx, config); err != nil {

@@ -56,21 +56,22 @@ func printByType(t OutputType, valid, failed []BenchmarkResult) {
 	}
 }
 
+//nolint:errcheck // printing helper
 func printResultsCSV(w io.Writer, results []BenchmarkResult, failed bool) {
 	if len(results) == 0 {
 		return
 	}
 	if failed {
-		fmt.Fprintln(w, "\nFailed resolvers:")
-		fmt.Fprintln(w, "Resolver,Address,Errors,Total")
+		_, _ = fmt.Fprintln(w, "\nFailed resolvers:")
+		_, _ = fmt.Fprintln(w, "Resolver,Address,Errors,Total")
 		for _, r := range results {
-			fmt.Fprintf(w, "%s,%s,%d,%d\n", r.Server.Name, r.Server.Addr, r.Stats.Errors, r.Stats.Total)
+			_, _ = fmt.Fprintf(w, "%s,%s,%d,%d\n", r.Server.Name, r.Server.Addr, r.Stats.Errors, r.Stats.Total)
 		}
 		return
 	}
-	fmt.Fprintln(w, "Resolver,Success Rate,Mean (ms),Min (ms),Max (ms),Total Queries")
+	_, _ = fmt.Fprintln(w, "Resolver,Success Rate,Mean (ms),Min (ms),Max (ms),Total Queries")
 	for _, r := range results {
-		fmt.Fprintf(w, "%s,%.1f,%.2f,%.2f,%.2f,%d\n",
+		_, _ = fmt.Fprintf(w, "%s,%.1f,%.2f,%.2f,%.2f,%d\n",
 			r.Server.Name,
 			r.Stats.SuccessRate()*100,
 			r.Stats.Mean,
@@ -80,24 +81,25 @@ func printResultsCSV(w io.Writer, results []BenchmarkResult, failed bool) {
 	}
 }
 
+//nolint:errcheck // printing helper
 func printResultsTable(w io.Writer, results []BenchmarkResult, failed bool) {
 	if len(results) == 0 {
 		return
 	}
 	if failed {
-		fmt.Fprintln(w, "\nFailed resolvers:")
-		fmt.Fprintf(w, "%-20s %-15s %10s %10s\n", "Resolver", "Address", "Errors", "Total")
+		_, _ = fmt.Fprintln(w, "\nFailed resolvers:")
+		_, _ = fmt.Fprintf(w, "%-20s %-15s %10s %10s\n", "Resolver", "Address", "Errors", "Total")
 		for _, r := range results {
-			fmt.Fprintf(w, "%-20s %-15s %10d %10d\n",
+			_, _ = fmt.Fprintf(w, "%-20s %-15s %10d %10d\n",
 				truncateString(r.Server.Name, 20), r.Server.Addr, r.Stats.Errors, r.Stats.Total)
 		}
 		return
 	}
-	fmt.Fprintf(w, "%-20s %10s %10s %10s %10s %10s\n",
+	_, _ = fmt.Fprintf(w, "%-20s %10s %10s %10s %10s %10s\n",
 		"Resolver", "Success%", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
-	fmt.Fprintf(w, "%s\n", strings.Repeat("-", 80))
+	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("-", 80))
 	for _, r := range results {
-		fmt.Fprintf(w, "%-20s %9.1f%% %9.2f %9.2f %9.2f %10d\n",
+		_, _ = fmt.Fprintf(w, "%-20s %9.1f%% %9.2f %9.2f %9.2f %10d\n",
 			truncateString(r.Server.Name, 20),
 			r.Stats.SuccessRate()*100,
 			r.Stats.Mean,
@@ -152,7 +154,8 @@ func retryWithBackoff[T any](
 			break
 		}
 
-		jitter := time.Duration(rand.N(backoff))
+		//nolint:gosec // jitter timing here is non-security critical
+		jitter := time.Duration(rand.N(int(backoff)))
 		wait := backoff/2 + jitter
 
 		select {
@@ -168,7 +171,7 @@ func retryWithBackoff[T any](
 }
 
 func isValidDomain(domain string) bool {
-	if len(domain) == 0 || len(domain) > 253 {
+	if domain == "" || len(domain) > 253 {
 		return false
 	}
 	return !strings.Contains(domain, " ") &&
@@ -251,5 +254,7 @@ func printResultsJSON(valid, failed []BenchmarkResult) {
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	_ = enc.Encode(output)
+	if err := enc.Encode(output); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to encode json results: %v\n", err)
+	}
 }

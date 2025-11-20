@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"math"
-	"os"
 	"sort"
 	"sync"
 	"time"
@@ -14,8 +14,8 @@ import (
 
 // DNSServer represents a resolver to be benchmarked
 type DNSServer struct {
-	Name string
-	Addr string
+	Name string `json:"name"`
+	Addr string `json:"addr"`
 }
 
 // BenchmarkResult contains the results for a single resolver
@@ -26,12 +26,12 @@ type BenchmarkResult struct {
 
 // Stats contains latency statistics for a resolver
 type Stats struct {
-	Min    float64
-	Max    float64
-	Mean   float64
-	Count  int
-	Errors int
-	Total  int
+	Min    float64 `json:"min"`
+	Max    float64 `json:"max"`
+	Mean   float64 `json:"mean"`
+	Count  int     `json:"count"`
+	Errors int     `json:"errors"`
+	Total  int     `json:"total"`
 }
 
 // IsValid returns true if the stats contain valid data
@@ -47,22 +47,29 @@ func (s Stats) SuccessRate() float64 {
 	return float64(s.Count) / float64(s.Total)
 }
 
-func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, domains []string) []BenchmarkResult {
+func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, domains []string, reporter BenchmarkReporter) ([]BenchmarkResult, error) {
 	if len(servers) == 0 {
-		slog.LogAttrs(ctx, slog.LevelError, "No DNS servers provided")
-		return nil
+		return nil, errors.New("no DNS servers provided")
 	}
 
 	if len(domains) == 0 {
-		slog.LogAttrs(ctx, slog.LevelError, "No domains provided")
-		return nil
+		return nil, errors.New("no domains provided")
 	}
 
-	results := make([]BenchmarkResult, len(servers))
+	if reporter == nil {
+		reporter = NoopReporter{}
+	}
+
+	reporter.OnStart(len(servers), domains)
+
+	results := make([]BenchmarkResult, 0, len(servers))
+	var runErr error
+
 	for i, server := range servers {
 		if cErr := ctx.Err(); cErr != nil {
-			slog.LogAttrs(ctx, slog.LevelError, "Context error, ending the benchmark", slogErr(cErr))
-			os.Exit(1)
+			runErr = cErr
+			slog.LogAttrs(ctx, slog.LevelWarn, "Benchmark canceled", slogErr(cErr))
+			break
 		}
 
 		slog.LogAttrs(ctx, slog.LevelInfo, "Benchmarking resolver",
@@ -72,13 +79,15 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 			slog.Int("total", len(servers)),
 		)
 
+		reporter.OnResolverStart(server, i+1, len(servers))
+
 		start := time.Now()
 
-		stats := benchmarkResolver(ctx, config, server, domains)
-		results[i] = BenchmarkResult{
+		stats := benchmarkResolver(ctx, config, server, domains, reporter)
+		results = append(results, BenchmarkResult{
 			Server: server,
 			Stats:  stats,
-		}
+		})
 
 		took := time.Since(start)
 		slog.LogAttrs(ctx, slog.LevelInfo, "Finished benchmarking resolver",
@@ -88,13 +97,17 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 			slog.Float64("success_rate", stats.SuccessRate()*100),
 		)
 
+		reporter.OnResolverDone(server, stats, took)
+
 		// Cool off after each server.
 		gcAndWait()
 	}
-	return results
+
+	reporter.OnComplete(results, runErr)
+	return results, runErr
 }
 
-func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, domains []string) Stats {
+func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, domains []string, reporter BenchmarkReporter) Stats {
 	type result struct {
 		domain  string
 		latency float64
@@ -146,9 +159,11 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	for r := range results {
 		if r.err != nil {
 			errorCount++
+			reporter.OnQueryResult(server, r.domain, 0, r.err)
 			continue
 		}
 		allLatencies = append(allLatencies, r.latency)
+		reporter.OnQueryResult(server, r.domain, r.latency, nil)
 	}
 
 	return calculateStats(allLatencies, errorCount, total)
@@ -184,14 +199,14 @@ func doWarmupRuns(ctx context.Context, resolver *Resolver, domain string, warmup
 	gcAndWait()
 }
 
-func calculateStats(latencies []float64, errors, total int) Stats {
+func calculateStats(latencies []float64, errs, total int) Stats {
 	if len(latencies) == 0 {
 		return Stats{
 			Min:    math.NaN(),
 			Max:    math.NaN(),
 			Mean:   math.NaN(),
 			Count:  0,
-			Errors: errors,
+			Errors: errs,
 			Total:  total,
 		}
 	}
@@ -208,7 +223,7 @@ func calculateStats(latencies []float64, errors, total int) Stats {
 		Max:    latencies[len(latencies)-1],
 		Mean:   sum / float64(len(latencies)),
 		Count:  len(latencies),
-		Errors: errors,
+		Errors: errs,
 		Total:  total,
 	}
 }

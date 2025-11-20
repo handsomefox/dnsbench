@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"math"
 	"testing"
 )
@@ -164,5 +165,18 @@ func TestCalculateStats(t *testing.T) {
 				t.Errorf("calculateStats() Total = %v, want %v", got.Total, tt.want.Total)
 			}
 		})
+	}
+}
+
+func TestRunBenchmark_ValidatesInput(t *testing.T) {
+	ctx := context.Background()
+	cfg := &Config{Repeats: 1}
+
+	if _, err := runBenchmark(ctx, cfg, nil, []string{"example.com"}, NoopReporter{}); err == nil {
+		t.Fatalf("expected error for missing servers")
+	}
+
+	if _, err := runBenchmark(ctx, cfg, []DNSServer{{Name: "a", Addr: "1.1.1.1"}}, nil, NoopReporter{}); err == nil {
+		t.Fatalf("expected error for missing domains")
 	}
 }
