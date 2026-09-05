@@ -10,7 +10,7 @@ UI shows a run while it happens.
 
 ## Build
 
-You need Go 1.24.5 or later, Make, and Node.js. Vite 7 pins Node to 20.19.0 or
+You need Go 1.27.1 or later, Make, and Node.js. Vite 7 pins Node to 20.19.0 or
 later on the 20.x line, or to 22.12.0 and later.
 
 ```bash

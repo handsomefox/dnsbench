@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  GO_VERSION: "1.24.5"
+  GO_VERSION: "1.27.1"
   NODE_VERSION: "20"
   GORELEASER_VERSION: "~> v2"
 
