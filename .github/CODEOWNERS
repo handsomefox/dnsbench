@@ -1,0 +1,3 @@
+# Release and CI automation requires maintainer review.
+/.github/ @handsomefox
+/.goreleaser.yaml @handsomefox

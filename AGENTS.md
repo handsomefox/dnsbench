@@ -10,16 +10,17 @@ the [CLI reference](docs/cli.md). Go and Node versions are in
 checkout `go build` and `go test` both fail until it exists, so run `make build`
 before you reach for the Go toolchain directly.
 
-## Run the linter yourself
+## Checks
 
 ```bash
 go fmt ./...
-go test ./...
-golangci-lint run
+go test -race ./...
+golangci-lint run ./...
+npm run lint --prefix webui
 ```
 
-`.golangci.yaml` configures the linter, and no workflow runs it. A pull request
-can go green with lint failures in it.
+`.golangci.yaml` configures the Go linter. CI runs all four on every push and
+pull request, so a lint failure now blocks the merge.
 
 ## Go and TypeScript disagree silently
 

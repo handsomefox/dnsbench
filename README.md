@@ -1,5 +1,8 @@
 # dnsbench
 
+[![CI](https://github.com/handsomefox/dnsbench/actions/workflows/ci.yml/badge.svg)](https://github.com/handsomefox/dnsbench/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 dnsbench measures how fast and how reliably DNS resolvers answer from your
 machine. It benchmarks one resolver at a time against a list of domains and
 reports latency and success rate as text, a table, CSV, or JSON. An embedded Web

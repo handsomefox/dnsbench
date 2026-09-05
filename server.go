@@ -330,7 +330,7 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // openBrowser tries to open the given URL in the user's default browser.
 func openBrowser(ctx context.Context, url string) error {
 	var cmd string
-	var args []string
+	args := make([]string, 0, 3)
 
 	switch runtime.GOOS {
 	case "windows":
