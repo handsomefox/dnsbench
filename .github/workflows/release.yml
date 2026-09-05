@@ -1,52 +1,60 @@
-# .github/workflows/release.yml
-name: goreleaser
+name: Release
 
 on:
-  pull_request:
   push:
-    # run only against tags
-    tags:
-      - "*"
+    tags: ["v*"]
 
-permissions:
-  contents: write
-  # packages: write
-  # issues: write
-  # id-token: write
+permissions: {}
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GO_VERSION: "1.24.5"
+  NODE_VERSION: "20"
+  GORELEASER_VERSION: "~> v2"
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   goreleaser:
-    runs-on: ubuntu-latest
+    name: GoReleaser
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
+
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
-          cache: 'npm'
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
           cache-dependency-path: webui/package-lock.json
-      - name: Install frontend deps
-        run: npm ci --prefix webui
-      - name: Build frontend
-        run: npm run build --prefix webui
-      # More assembly might be required: Docker logins, GPG, etc.
-      # It all depends on your needs.
+
+      # server.go embeds webui/dist, so the release build needs it first.
+      - name: Build the Web UI
+        run: |
+          npm ci --prefix webui
+          npm run build --prefix webui
+
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
-          # either 'goreleaser' (default) or 'goreleaser-pro'
           distribution: goreleaser
-          # 'latest', 'nightly', or a semver
-          version: "~> v2"
+          version: ${{ env.GORELEASER_VERSION }}
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Your GoReleaser Pro key, if you are using the 'goreleaser-pro' distribution
-          # GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
