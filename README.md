@@ -1,127 +1,107 @@
 # dnsbench
 
-A simple CLI tool to benchmark DNS resolvers against a list of domains, measuring latency and success rate, and producing reports in multiple formats (CSV, table, JSON).
+dnsbench measures how fast and how reliably DNS resolvers answer from your
+machine. It benchmarks one resolver at a time against a list of domains and
+reports latency and success rate as text, a table, CSV, or JSON. An embedded Web
+UI shows a run while it happens.
 
-Now ships with an embedded Web UI dashboard for live monitoring and control.
+## Build
 
-## Features
-
-- Built-in list of major, privacy-focused, regional, and alternative DNS resolvers
-- Option to supply custom resolvers (`-f resolvers.txt`)
-- Default popular domains list; can supply your own (`-s domains.txt`)
-- Configurable number of repeats per domain (`-n`)
-- Configurable per-query timeout (`-t`)
-- Adjustable concurrency (`-c`)
-- Multiple output formats: default, table, CSV, and JSON for integration with other tools
-- Configurable logging levels (default, verbose, disabled)
-- Warmup runs: Optionally perform warmup queries before benchmarking to reduce cold-start effects (`--warmup N`)
-- Embedded Web UI dashboard (`-ui`) with live SSE updates, configurable domains/resolvers, and result tables
-
-## Installation
-
-Build locally (requires Go 1.24+):
+You need Go 1.24.5 or later, Make, and Node.js. Vite 7 pins Node to 20.19.0 or
+later on the 20.x line, or to 22.12.0 and later.
 
 ```bash
 git clone https://github.com/handsomefox/dnsbench.git
 cd dnsbench
-go mod tidy
 make build
 ```
 
-Or install directly:
+`make build` builds the Web UI, runs the Go tests, and writes `bin/dnsbench`.
+
+`server.go` embeds `webui/dist/`, and that directory is not committed, so plain
+`go build` and `go test` fail in a fresh checkout until the Web UI is built.
+`go install github.com/handsomefox/dnsbench@latest` fails for the same reason.
+Build through Make.
+
+## Run a benchmark
+
+To test the built-in major resolvers with five lookups per domain, run:
 
 ```bash
-go install github.com/handsomefox/dnsbench@latest
+./bin/dnsbench -major -n 5 -c 8 -warmup 2 -log disabled -output table
 ```
 
-## Usage
+To test every built-in resolver with more repeats and a longer timeout, run:
 
 ```bash
-# Recommended
-./dnsbench -log=disabled -c=8 -n=5 -major=true -output=table -warmup=2
-
-# More repeats, longer timeout
-./dnsbench -n 20 -t 5s
-
-# Output results in CSV format
-./dnsbench -output csv
-
-# Output as a simple table
-./dnsbench -output table
-
-# Output as JSON
-./dnsbench --output json > results.json
-
-# Disable logging
-./dnsbench -log disabled
-
-# Verbose logging with CSV output
-./dnsbench -log verbose -output csv
-
-# Custom resolvers list, custom concurrency
-./dnsbench -f myresolvers.txt -c 8
-
-# Custom domains list
-./dnsbench -s mydomains.txt
-
-# Only benchmark major resolvers
-./dnsbench -major
-
-# Perform 3 warmup queries per resolver/domain before benchmarking
-./dnsbench --warmup 3
-
-# Start the Web UI dashboard on port 8080
-./dnsbench -ui -listen :8080
+./bin/dnsbench -n 20 -t 5s
 ```
 
-### Flags
+The built-in resolver and domain lists are in [`data.go`](data.go). Every flag,
+its default, and every report field is in the [CLI reference](docs/cli.md).
 
-- `-f string` Optional file with resolvers (`name;ip` per line)
-- `-s string` Optional file with domains (one domain per line)
-- `-n int` Number of times each domain is queried
-- `-t duration` Timeout per DNS query (e.g. 1500ms, 2s)
-- `-c int` Maximum concurrent DNS queries
-- `-output string` Output format: "default", "csv", "table", or "json"
-- `-log string` Logging level: "default", "verbose", or "disabled"
-- `-major` Benchmark only major DNS resolvers
-- `--warmup int` Number of warmup queries per resolver/domain before benchmarking
-- `-ui` Start the embedded Web UI server instead of running the CLI benchmark
-- `-listen string` Address for the Web UI server (default `:8080`)
+## Use your own resolvers and domains
 
-### Example JSON Output Structure
+Write `resolvers.txt` with one `name;ip` pair per line:
 
-```json
-{
-  "results": [
-    {
-      "server": { "name": "Cloudflare-1", "addr": "1.1.1.1" },
-      "stats": { "min": 12.3, "max": 25.6, "mean": 15.2, "count": 10, "errors": 0, "total": 10 },
-      "per_domain_stats": {
-        "google.com": { "min": 12.3, ... },
-        "github.com": { ... }
-      }
-    },
-    ...
-  ],
-  "summary": {
-    "fastest_resolver": "Cloudflare-1",
-    "slowest_resolver": "SomeDNS",
-    "overall_success_rate": 0.98,
-    ...
-  }
-}
+```text
+Cloudflare-1;1.1.1.1
+Google-1;8.8.8.8
 ```
 
-## Makefile
+Write `domains.txt` with one domain per line:
 
-- `make build` – build UI, run tests, compile host binary
-- `make build-windows` - build UI, run tests, compile Windows binary
-- `make run` – build and run CLI with defaults (N/TIMEOUT overridable)
-- `make run-ui` – build everything then launch the Web UI at http://localhost:8080
-- `make ui-install` – install front-end dependencies
-- `make ui-build` – build the static Web UI (Vite)
-- `make ui-dev` – start the Vite dev server for UI work
+```text
+github.com
+google.com
+```
 
-## License
+Pass both files:
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+```bash
+./bin/dnsbench -f resolvers.txt -s domains.txt -output table
+```
+
+Each file replaces the matching built-in list instead of adding to it, and `-f`
+overrides `-major`. For the validation rules, see
+[input files](docs/cli.md#input-files).
+
+## Save a report
+
+```bash
+./bin/dnsbench -log disabled -output json > results.json
+./bin/dnsbench -log disabled -output csv > results.csv
+```
+
+CSV writes the resolvers that answered to standard output and the ones that
+failed to standard error, so the redirect above captures only the successes.
+JSON puts both groups in one document, under `results` and `failures`.
+
+One catch before you script against JSON. A resolver with no successful lookup
+gets `NaN` for its latencies, `encoding/json` refuses `NaN`, and dnsbench then
+writes `failed to encode json results` to standard error and produces no report
+at all. It still exits `0`. See [report formats](docs/cli.md#report-formats).
+
+## Start the Web UI
+
+```bash
+./bin/dnsbench -ui -listen 127.0.0.1:8080
+```
+
+dnsbench tries to open your browser at that address. If it does not, open
+<http://127.0.0.1:8080> yourself. Pick the domains, resolvers, and options, then
+click **Start benchmark**. **Stop** ends a run early, **Reset** clears the
+results, and **View results** switches to the results table.
+
+`-listen` defaults to `:8080`, which accepts connections from anywhere that can
+reach your machine. The dashboard has no authentication, and it runs lookups
+against whatever resolver addresses a request names. If you expose it beyond
+your own machine, put it behind a firewall or a reverse proxy.
+
+## Documentation
+
+- [CLI reference](docs/cli.md): flags, lookup behavior, input files, and report formats.
+- [Web UI development](webui/README.md): running and checking the dashboard.
+- [Contributing](AGENTS.md): build commands, conventions, and what to check.
+
+dnsbench uses the [MIT license](LICENSE).

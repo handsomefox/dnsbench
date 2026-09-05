@@ -1,37 +1,45 @@
-# Repository Guidelines
+# Contributing to dnsbench
 
-## Project Structure & Modules
-- Go source lives at repo root (`main.go`, `resolver.go`, `benchmark.go`, etc.). Shared helpers in `utils.go`; server/SSE helpers in `server.go` and `sse.go`.
-- Tests sit beside code (e.g., `benchmark_test.go`, `resolver_test.go`).
-- CLI binary output: `bin/dnsbench` (created by Make targets).
-- Web UI front-end lives in `webui/` (Vite/React). Built assets emitted to `webui/dist/` and embedded at build time.
+Build commands are in the [Makefile](Makefile). Flag and report behavior is in
+the [CLI reference](docs/cli.md). Go and Node versions are in
+[Build](README.md#build).
 
-## Build, Test, and Dev Commands
-- `make build` — build Web UI, run Go tests, compile CLI to `bin/dnsbench`.
-- `make build-windows` — same as build but produces `bin/dnsbench.exe` for Windows (GOOS/GOARCH set).
-- `make test` — run all Go tests with verbose output.
-- `make run` — build then execute CLI with defaults (`N` and `TIMEOUT` overridable: `make run N=20 TIMEOUT=2s`).
-- `make run-ui` — build everything and start the embedded dashboard on `:8080`.
-- Front-end only: `make ui-install`, `make ui-build`, `make ui-dev` (Vite dev server with `--host` for LAN testing).
+## Build the Web UI first
 
-## Coding Style & Naming
-- Go 1.24+; format with `gofmt` (run `go fmt ./...` before committing). Keep imports ordered with standard `goimports` style if you use it.
-- Follow standard Go naming: exported symbols in `CamelCase`; unexported in `camelCase`; tests use `TestXxx`.
-* Concurrency: prefer context-aware functions; respect existing timeouts and `-t` flag semantics.
-- Keep logging consistent with current levels (`default`, `verbose`, `disabled`); avoid noisy output by default.
+`server.go` embeds `webui/dist/`, and that directory is gitignored. In a fresh
+checkout `go build` and `go test` both fail until it exists, so run `make build`
+before you reach for the Go toolchain directly.
 
-## Testing Guidelines
-- Primary suite: `go test ./...` (already invoked by `make build`). Add focused tests next to implementations (`foo_test.go`) using table-driven cases.
-- When introducing new resolver behaviors or parsers, include latency/error path coverage and SSE/JSON formatting checks where applicable.
-- For Web UI changes, rely on Vite’s dev server; add minimal smoke tests if you introduce new Go HTTP handlers.
+## Run the linter yourself
 
-## Commit & PR Guidelines
-- Match existing history: short, imperative, conventional-style prefixes (e.g., `feat: add WebUI`, `fix: handle timeouts`).
-- Commit scope should stay focused; prefer multiple small commits over one large unrelated change.
-- PRs should include: purpose/summary, key commands run (`make test`, `make build`), screenshots or GIFs for UI changes, and links to any related issues.
-- Note any flags or env vars needed to reproduce (e.g., `N`, `TIMEOUT`, `RESFILE`).
+```bash
+go fmt ./...
+go test ./...
+golangci-lint run
+```
 
-## Security & Configuration Tips
-- Avoid committing resolver/domain lists containing sensitive data. Use sample files instead.
-- Networked features listen on `:8080` by default; override `-listen` for non-local use and place behind a firewall/reverse proxy if exposed.
-- Keep third-party JS deps in `webui` pinned via `package-lock.json`; run `npm audit` after updates.
+`.golangci.yaml` configures the linter, and no workflow runs it. A pull request
+can go green with lint failures in it.
+
+## Go and TypeScript disagree silently
+
+`server.go` defines the request and response structs, and `webui/src/types.ts`
+repeats them by hand. The event payloads are looser still: `reporter.go` builds
+each `Detail` as a `map[string]interface{}` with string-literal keys, and the
+dashboard reads them back out of an untyped `Record<string, unknown>`. Rename a
+key on either side and nothing fails to compile. The field just arrives
+undefined. Change both files together, then check the dashboard against a live
+run, following [Web UI checks](webui/README.md#check-your-changes).
+
+## What not to change
+
+- `-t` bounds one lookup attempt. It is not a budget for a lookup or for a run, and `docs/cli.md` documents it that way.
+- The logging levels are `default`, `verbose`, and `disabled`. Keep `default` quiet enough to pipe a report into a file.
+- `data.go` holds the built-in lists. Do not put internal hostnames or addresses there, or in a sample resolver file.
+
+## Commits
+
+One change per commit. Short imperative subject with a conventional prefix, such
+as `feat: add Web UI` or `fix: handle timeouts`. In the pull request, say what
+was broken and what the behavior is now, and paste the commands you ran.
+Screenshots for dashboard changes.
