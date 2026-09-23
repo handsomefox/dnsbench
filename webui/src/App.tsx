@@ -453,7 +453,7 @@ function ResultsModal({ results, totalResolvers, onClose }: ResultsModalProps) {
                     <div className="text-xs text-muted-foreground">{r.server.addr}</div>
                   </td>
                   <td className="px-3 py-2 font-semibold">
-                    {(successRate(r.stats) * 100).toFixed(1)}%
+                    {successRate(r.stats).toFixed(1)}%
                   </td>
                   <td className="px-3 py-2">{formatMs(r.stats.mean, 2)}</td>
                   <td className="px-3 py-2 text-xs">
