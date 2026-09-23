@@ -145,7 +145,7 @@ func LoadDomains(sitesFile string) ([]string, error) {
 
 // Filter selects from the built-in resolvers.
 type Filter struct {
-	Major     bool // only the major providers
+	Major     bool // only the major services
 	Primary   bool // only the first address in each list
 	Family    Family
 	Transport Transport
@@ -173,7 +173,8 @@ func ParseKind(s string) (string, error) {
 // and the dashboard select by. The JSON form goes to the dashboard.
 type Entry struct {
 	dnsclient.Server
-	Provider  string `json:"provider"`
+	Service   string `json:"service"`  // such as Cloudflare-Family
+	Provider  string `json:"provider"` // the company, such as Cloudflare
 	Category  string `json:"category"`
 	Major     bool   `json:"major"`
 	Primary   bool   `json:"primary"`   // the first address in its list
@@ -181,13 +182,13 @@ type Entry struct {
 	Transport string `json:"transport"` // plain, dot, doh, or doq
 }
 
-// All lists every built-in resolver, in the order of the providers table.
-// For each provider, plain DNS comes first, then DoT, DoH, and DoQ, and
-// IPv4 comes before IPv6. The names follow the pattern in the provider
+// All lists every built-in resolver, in the order of the services table.
+// For each service, plain DNS comes first, then DoT, DoH, and DoQ, and
+// IPv4 comes before IPv6. The names follow the pattern in the service
 // comment.
 func All() []Entry {
 	var entries []Entry
-	for _, p := range providers {
+	for _, p := range services {
 		for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportDoQ} {
 			suffix := ""
 			server := dnsclient.Server{}
@@ -225,7 +226,8 @@ func All() []Entry {
 					s.Name = fmt.Sprintf("%s%s%s-%d", p.name, suffix, v6, i+1)
 					entries = append(entries, Entry{
 						Server:    s,
-						Provider:  p.name,
+						Service:   p.name,
+						Provider:  p.provider,
 						Category:  p.category,
 						Major:     p.major,
 						Primary:   i == 0,

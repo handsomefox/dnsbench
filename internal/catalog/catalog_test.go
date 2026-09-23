@@ -15,7 +15,7 @@ import (
 
 func TestBuiltinServers(t *testing.T) {
 	var plain4, plain6, dot4, dot6, doh4, doh6, doq4, doq6, majorPlain4, primaryPlain4 int
-	for _, p := range providers {
+	for _, p := range services {
 		if !p.encryptedOnly {
 			plain4 += len(p.ipv4)
 			primaryPlain4 += min(len(p.ipv4), 1)
@@ -273,5 +273,15 @@ func TestParseKind(t *testing.T) {
 	}
 	if _, err := ParseKind("family"); err == nil {
 		t.Error(`ParseKind("family") returned no error`)
+	}
+}
+
+// Each service's name starts with its provider's, so the dashboard can
+// group Cloudflare-Family under Cloudflare, and a typo in either shows.
+func TestServiceProviders(t *testing.T) {
+	for _, s := range services {
+		if s.provider == "" || s.name != s.provider && !strings.HasPrefix(s.name, s.provider+"-") {
+			t.Errorf("service %q has provider %q", s.name, s.provider)
+		}
 	}
 }

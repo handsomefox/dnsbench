@@ -141,7 +141,7 @@ func parseFlags() *Config {
 	flag.IntVar(&config.Retries, "retries", 2, "Retries of a failed lookup attempt, after a short wait. 0 disables them")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum lookups in flight at once, across all resolvers")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Only the major providers: Cloudflare, Google, Quad9, NextDNS, and AdGuard")
-	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Only the first address of each provider, such as Cloudflare-1")
+	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Only the first address of each service, such as Cloudflare-1")
 	flag.StringVar(&family, "family", "ipv4", "Address family: ipv4, ipv6, or all")
 	flag.StringVar(&transport, "proto", "plain", "Transport: plain, dot, doh, doq, or all")
 	flag.StringVar(&kind, "kind", "all", "Kind of resolver: global, filtering (malware, ads, or family filters), privacy, regional, or all")

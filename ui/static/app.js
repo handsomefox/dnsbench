@@ -399,7 +399,7 @@ function renderPresets() {
 
 function matchesSearch(e, terms) {
 	if (terms.length === 0) return true
-	const hay = `${e.name} ${e.provider} ${e.addr} ${e.category} ${e.transport}`.toLowerCase()
+	const hay = `${e.name} ${e.service} ${e.provider} ${e.addr} ${e.category} ${e.transport}`.toLowerCase()
 	return terms.every((t) => hay.includes(t))
 }
 
@@ -408,8 +408,8 @@ function renderPicker() {
 	const groups = new Map()
 	for (const e of catalog) {
 		if (!isCandidate(e) || !matchesSearch(e, terms)) continue
-		if (!groups.has(e.provider)) groups.set(e.provider, [])
-		groups.get(e.provider).push(e)
+		if (!groups.has(e.service)) groups.set(e.service, [])
+		groups.get(e.service).push(e)
 	}
 
 	if (groups.size === 0) {
@@ -424,7 +424,7 @@ function renderPicker() {
 			const chosen = entries.filter((e) => !setup.excluded.has(serverKey(e))).length
 			const open = setup.open.has(provider) || terms.length > 0
 			const box = el("input", { type: "checkbox", checked: chosen === entries.length, indeterminate: chosen > 0 && chosen < entries.length })
-			box.dataset.provider = provider
+			box.dataset.service = provider
 			box.setAttribute("aria-label", `Select all of ${provider}`)
 			const transports = [...new Set(entries.map((e) => e.transport))]
 			const toggle = el(
@@ -1372,8 +1372,8 @@ $("builtin-list").addEventListener("change", (event) => {
 	if (box.dataset.key) {
 		if (box.checked) setup.excluded.delete(box.dataset.key)
 		else setup.excluded.add(box.dataset.key)
-	} else if (box.dataset.provider) {
-		for (const e of catalog.filter((c) => c.provider === box.dataset.provider && isCandidate(c))) {
+	} else if (box.dataset.service) {
+		for (const e of catalog.filter((c) => c.service === box.dataset.service && isCandidate(c))) {
 			if (box.checked) setup.excluded.delete(serverKey(e))
 			else setup.excluded.add(serverKey(e))
 		}

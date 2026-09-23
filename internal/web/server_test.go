@@ -225,7 +225,7 @@ func TestUIServer_BuiltinsDataIsland(t *testing.T) {
 	}
 	// app.js filters on these fields, so every entry needs them.
 	for _, e := range got {
-		if e.Name == "" || e.Addr == "" || e.Provider == "" || e.Category == "" || e.Family == "" || e.Transport == "" {
+		if e.Name == "" || e.Addr == "" || e.Service == "" || e.Provider == "" || e.Category == "" || e.Family == "" || e.Transport == "" {
 			t.Errorf("entry is missing a field: %+v", e)
 		}
 	}
