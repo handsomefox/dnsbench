@@ -107,9 +107,8 @@ costs three. Few providers serve DoQ: of the built-in list, AdGuard, NextDNS,
 Quad9, and AliDNS do.
 
 Concurrent lookups share that one connection, and some servers answer them
-more slowly than one at a time. In a test on 2026-09-23, AdGuard's mean DoQ
-latency went from 41 ms at `-c 1` to 76 ms at `-c 8`, while NextDNS went from
-9 ms to 13 ms. If DoQ numbers look high, run the same resolvers with `-c 1`.
+more slowly than one at a time. If DoQ numbers look high, run the same
+resolvers again with `-c 1` and compare.
 
 ## Input files
 
