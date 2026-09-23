@@ -350,3 +350,47 @@ func TestRunBenchmark_CancelDoesNotCountFailures(t *testing.T) {
 		}
 	}
 }
+
+// useSilentDNS points every server of a run at a UDP server that reads
+// queries and never answers.
+func useSilentDNS(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	addr, queries := startSilentDNS(t)
+	saved := newResolverFor
+	t.Cleanup(func() { newResolverFor = saved })
+	newResolverFor = func(server DNSServer, concurrency int) *Resolver {
+		return newResolver(server.Addr, addr, nil, concurrency)
+	}
+	return queries
+}
+
+// A resolver that passes the precheck but never answers must not cost
+// every lookup its full timeout. The run gives up on it after giveUpAfter
+// failed lookups and fails the rest at once.
+func TestRunBenchmark_GivesUpOnSilentResolver(t *testing.T) {
+	queries := useSilentDNS(t)
+
+	cfg := &Config{Repeats: 10, LookupTimeout: 100 * time.Millisecond, Retries: 0, MaxConcurrency: 2}
+	domains := []string{"one.example", "two.example", "three.example", "four.example"}
+	reporter := &countingReporter{}
+
+	start := time.Now()
+	results, err := runBenchmark(t.Context(), cfg, []DNSServer{{Name: "silent", Addr: "127.0.0.1"}}, domains, reporter)
+	if err != nil {
+		t.Fatalf("runBenchmark() error = %v", err)
+	}
+	// Forty lookups at 100 ms each, two at a time, would take two seconds.
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("runBenchmark() took %v, want it to give up well before a second", took)
+	}
+	if stats := results[0].Stats; stats.Errors != 40 || stats.Total != 40 {
+		t.Errorf("stats = %+v, want 40 failed lookups of 40", stats)
+	}
+	// The lookups in flight when the run gave up had sent their queries.
+	if got := int(queries.Load()); got > giveUpAfter+cfg.MaxConcurrency {
+		t.Errorf("server saw %d queries, want about %d before the run gave up", got, giveUpAfter)
+	}
+	if msg, ok := reporter.err.Load().(string); !ok || !strings.Contains(msg, "gave up") {
+		t.Errorf("last reported error = %q, want it to say the run gave up", msg)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"math/rand/v2"
@@ -97,6 +98,13 @@ func (s Stats) SuccessRate() float64 {
 // replace it to point a run at local fake servers.
 var newResolverFor = NewResolver
 
+// giveUpAfter is how many lookups in a row may fail before a run gives up
+// on a resolver and fails the rest of its lookups at once. Answers about
+// the name, such as NXDOMAIN, do not count. Without it, a resolver behind a
+// firewall that drops its queries would cost every one of its lookups the
+// full timeout of every attempt.
+const giveUpAfter = 8
+
 // precheckLimit caps how many resolvers are prechecked at once. A precheck
 // can wait for a TLS handshake, so running them together saves time.
 const precheckLimit = 16
@@ -133,7 +141,10 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 
 	runs := make([]*resolverRun, len(servers))
 	for i, server := range servers {
+		runCtx, cancel := context.WithCancelCause(ctx)
 		runs[i] = &resolverRun{
+			ctx:       runCtx,
+			giveUp:    cancel,
 			server:    server,
 			resolver:  newResolverFor(server, config.MaxConcurrency),
 			planned:   len(domains) * config.Repeats,
@@ -144,6 +155,7 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 	}
 	defer func() {
 		for _, run := range runs {
+			run.giveUp(nil)
 			run.resolver.Close()
 		}
 	}()
@@ -217,6 +229,7 @@ func precheckAll(ctx context.Context, runs []*resolverRun, domains []string, rep
 			slog.String("name", run.server.Name),
 			slogErr(errs[i]),
 		)
+		run.giveUp(errs[i])
 		for range repeats {
 			for _, domain := range domains {
 				run.record(ctx, domain, Lookup{}, errs[i], reporter)
@@ -242,50 +255,91 @@ type lookupJob struct {
 
 // resolverRun collects one resolver's lookups during a run.
 type resolverRun struct {
+	// ctx ends with the run, or when the run gives up on this resolver.
+	ctx    context.Context
+	giveUp context.CancelCauseFunc
+
 	server   DNSServer
 	resolver *Resolver
 	planned  int
 	start    time.Time
 
-	mu        sync.Mutex
-	latencies []float64
-	errors    int
-	retried   int
-	remaining int
+	mu         sync.Mutex
+	latencies  []float64
+	errors     int
+	retried    int
+	remaining  int
+	failStreak int // lookups in a row that failed, not counting final answers
 }
 
 // lookup runs job's warmup lookups, then its measured lookup, and records
 // the result. A lookup that the run's cancellation cut short is not
-// recorded: it says nothing about the resolver.
+// recorded: it says nothing about the resolver. After the run gives up on
+// the resolver, its lookups fail at once with the reason.
+//
+// The lookups use r.ctx, which derives from the run's ctx and also ends
+// when the run gives up on this resolver.
+//
+//nolint:contextcheck // r.ctx is a child of ctx, kept per resolver
 func (r *resolverRun) lookup(ctx context.Context, config *Config, job lookupJob, reporter BenchmarkReporter) {
 	if ctx.Err() != nil {
 		return
 	}
-	warmUp(ctx, r.resolver, job.domain, job.warmup)
-	result, err := r.resolver.QueryDNS(ctx, job.domain, config.LookupTimeout, config.Retries)
+	if cause := context.Cause(r.ctx); errors.Is(cause, errGaveUp) {
+		r.record(ctx, job.domain, Lookup{}, cause, reporter)
+		return
+	}
+	warmUp(r.ctx, r.resolver, job.domain, job.warmup)
+	result, err := r.resolver.QueryDNS(r.ctx, job.domain, config.LookupTimeout, config.Retries)
 	if err != nil && ctx.Err() != nil {
 		return
 	}
+	if cause := context.Cause(r.ctx); err != nil && errors.Is(cause, errGaveUp) {
+		err = cause
+	}
 	r.record(ctx, job.domain, result, err, reporter)
 }
+
+// errGaveUp is the error of every lookup after a run gives up on a
+// resolver.
+var errGaveUp = fmt.Errorf("gave up on the resolver after %d lookups in a row failed", giveUpAfter)
 
 // record adds one lookup to the resolver's results and reports it. After
 // the resolver's last planned lookup, it reports the resolver done.
 func (r *resolverRun) record(ctx context.Context, domain string, result Lookup, err error, reporter BenchmarkReporter) {
 	r.mu.Lock()
 	latency := result.Latency.Seconds() * 1000
-	if err != nil {
-		r.errors++
-		latency = 0
-	} else {
+	giveUp := false
+	switch {
+	case err == nil:
 		r.latencies = append(r.latencies, latency)
 		if result.Attempts > 1 {
 			r.retried++
 		}
+		r.failStreak = 0
+	case isFinalAnswer(err), r.ctx.Err() != nil:
+		// An answer about the name, or a lookup after the run gave up on
+		// the resolver, says nothing new about whether it answers.
+		r.errors++
+		latency = 0
+	default:
+		r.errors++
+		latency = 0
+		r.failStreak++
+		giveUp = r.failStreak == giveUpAfter
 	}
 	r.remaining--
 	done := r.remaining == 0
 	r.mu.Unlock()
+
+	if giveUp {
+		slog.LogAttrs(ctx, slog.LevelWarn, "Giving up on resolver",
+			slog.String("name", r.server.Name),
+			slog.Int("failed_in_a_row", giveUpAfter),
+		)
+		// Cut the lookups in flight short too. They fail with errGaveUp.
+		r.giveUp(errGaveUp)
+	}
 
 	reporter.OnQueryResult(r.server, domain, latency, result.Attempts, err)
 	if done {

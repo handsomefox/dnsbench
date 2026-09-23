@@ -272,6 +272,15 @@ func buildQuery(id uint16, name *dnsmessage.Name) ([]byte, error) {
 // errors by their text, so keep "no such host" in it.
 var errNoSuchHost = errors.New("no such host")
 
+// errNoARecord is the error for an answer without any A record.
+var errNoARecord = errors.New("no A record in the answer")
+
+// isFinalAnswer reports whether err is an answer about the name, such as
+// NXDOMAIN, rather than a failure of the resolver.
+func isFinalAnswer(err error) bool {
+	return errors.Is(err, errNoSuchHost) || errors.Is(err, errNoARecord)
+}
+
 // checkAnswer returns nil when answer answers the query with id for name
 // with at least one A record. An answer that the name does not exist, or
 // that it has no A record, is a finalError: asking again gets the same
@@ -305,7 +314,7 @@ func checkAnswer(answer []byte, id uint16, name *dnsmessage.Name) error {
 	for {
 		ah, err := p.AnswerHeader()
 		if errors.Is(err, dnsmessage.ErrSectionDone) {
-			return &finalError{err: errors.New("no A record in the answer")}
+			return &finalError{err: errNoARecord}
 		}
 		if err != nil {
 			return fmt.Errorf("malformed answer: %w", err)

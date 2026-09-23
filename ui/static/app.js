@@ -192,6 +192,7 @@ function percentile(sorted, p) {
 
 // errorKind shortens an error string to the part that tells failures apart.
 function errorKind(message) {
+	if (/gave up on the resolver/i.test(message)) return "gave up after repeated failures"
 	if (/certificate/i.test(message)) return "bad TLS certificate"
 	if (/refused the TLS handshake/i.test(message)) return "TLS handshake refused"
 	if (/no route/i.test(message)) return "no route to resolver"

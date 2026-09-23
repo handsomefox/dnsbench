@@ -75,6 +75,13 @@ can fix:
 If either check fails, dnsbench logs a warning and counts every planned lookup
 against that resolver as failed, without retries.
 
+A resolver can pass both checks and still never answer, such as one behind a
+firewall that drops its queries. When 8 lookups in a row against one resolver
+fail, dnsbench gives up on it. It cuts that resolver's lookups in flight short
+and fails the rest of its planned lookups at once, with an error that says it
+gave up. An answer that the name does not exist, or that it has no A record,
+does not count toward the 8, and any successful lookup starts the count over.
+
 The reported latency covers the successful attempt alone. It leaves out the
 earlier attempts, the waits between them, and the time the lookup spent waiting
 for a concurrency slot.
