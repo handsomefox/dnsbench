@@ -200,7 +200,7 @@ func parseFlags() *Config {
 		listenAddr string
 	)
 
-	flag.StringVar(&config.ResolversFile, "f", "", "File of resolvers, one name;ip per line, that replaces the built-in list")
+	flag.StringVar(&config.ResolversFile, "f", "", "File of resolvers that replaces the built-in list, one name;ip or name;ip;tls-name (DNS over TLS) per line")
 	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout for one lookup attempt (e.g. 1500ms, 2s)")
 	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
 	flag.StringVar(&config.SitesFile, "s", "", "File of domains, one per line, that replaces the built-in list")
