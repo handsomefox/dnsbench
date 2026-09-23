@@ -25,10 +25,6 @@ var (
 		{Name: "ControlD-2", Addr: "76.76.10.0"},
 
 		// Privacy-focused
-		{Name: "Mullvad-1", Addr: "194.242.2.2"},
-		{Name: "Mullvad-2", Addr: "194.242.2.3"},
-		{Name: "DNS0-EU-1", Addr: "193.110.81.0"},
-		{Name: "DNS0-EU-2", Addr: "185.253.5.0"},
 		{Name: "UncensoredDNS-1", Addr: "91.239.100.100"},
 		{Name: "UncensoredDNS-2", Addr: "89.233.43.71"},
 
@@ -43,8 +39,6 @@ var (
 		// Alternative providers
 		{Name: "DNS-SB-1", Addr: "185.222.222.222"},
 		{Name: "DNS-SB-2", Addr: "45.11.45.11"},
-		{Name: "LibreDNS-1", Addr: "116.202.176.26"},
-		{Name: "LibreDNS-2", Addr: "116.203.115.192"},
 	}
 
 	builtinMajorResolvers = []DNSServer{
