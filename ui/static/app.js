@@ -724,6 +724,7 @@ function liveStats(prev, latency, failed, attempts) {
 
 const rowNodes = new Map() // serverKey -> {li, head, canvas, p50, p95, ok, errline, detail}
 let rowOrder = []
+let lastSort = 0
 let palette = null
 
 function readPalette() {
@@ -814,7 +815,12 @@ function makeRow(entry) {
 		entry.dirty = true
 		queueRender()
 	})
-	if (!reducedMotion.matches) nodes.li.classList.add("arrive")
+	if (!reducedMotion.matches) {
+		nodes.li.classList.add("arrive")
+		// Moving a row in the list would replay the animation from its
+		// first, invisible frame. Play it once only.
+		nodes.li.addEventListener("animationend", () => nodes.li.classList.remove("arrive"), { once: true })
+	}
 	return nodes
 }
 
@@ -849,9 +855,15 @@ function renderLadder() {
 	for (const entry of ordered) {
 		if (!rowNodes.has(entry.key)) rowNodes.set(entry.key, makeRow(entry))
 	}
-	if (order.join("|") !== rowOrder.join("|")) {
+	// Every resolver's median moves while a run goes. Re-sort at most once
+	// a second then, so the rows do not jump on every frame. New rows and
+	// the final order go in at once.
+	const changed = order.join("|") !== rowOrder.join("|")
+	const settled = state.status !== "running" || order.length !== rowOrder.length || Date.now() - lastSort > 1000
+	if (changed && settled) {
 		$("ladder").replaceChildren(...order.map((k) => rowNodes.get(k).li))
 		rowOrder = order
+		lastSort = Date.now()
 	}
 
 	for (const entry of ordered) {
