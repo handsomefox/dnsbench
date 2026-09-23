@@ -17,6 +17,12 @@ Go linter. CI runs all four on every push to `main` and on every pull request,
 and a failure blocks the merge. Node is only a syntax check for the dashboard
 script. Nothing in the repository installs npm packages.
 
+CI also builds the Android release. That build uses cgo, since Go supports
+Android programs only with cgo, and compiles through the Android NDK that
+GitHub's Ubuntu runners include. Locally, `goreleaser build --id android`
+needs `ANDROID_CC` set to the NDK's `aarch64-linux-android24-clang`. Every
+other build is pure Go and needs no C compiler.
+
 ## Layout
 
 `main.go` and `cli.go` in the root parse the flags and wire the packages

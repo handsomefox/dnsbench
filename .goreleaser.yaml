@@ -16,21 +16,26 @@ before:
     - go generate ./...
 
 builds:
-  - env:
+  - id: dnsbench
+    env:
       - CGO_ENABLED=0
     goos:
       - linux
       - windows
       - darwin
-      # For Termux. Termux on Android 10 and later loads programs with
-      # Android's linker64, which runs only position-independent builds, as
-      # an Android build is. It also finds Android's CA certificates.
+
+  # For Termux. Go supports Android programs only with cgo, so this build
+  # compiles through the Android NDK's clang. The workflows set ANDROID_CC
+  # from the NDK that GitHub's Ubuntu runners come with. API level 24 is
+  # Android 7, the oldest that Termux runs on.
+  - id: android
+    env:
+      - CGO_ENABLED=1
+      - CC={{ .Env.ANDROID_CC }}
+    goos:
       - android
-    ignore:
-      - goos: android
-        goarch: "386"
-      - goos: android
-        goarch: amd64
+    goarch:
+      - arm64
 
 archives:
   - formats: [tar.gz]
