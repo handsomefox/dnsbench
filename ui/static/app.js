@@ -98,7 +98,13 @@ const state = {
 	hiddenTransports: new Set(), // result filter
 }
 
-// setup holds the resolver filters. The form holds the rest.
+// setup holds the resolver filters and picks. The form holds the rest.
+//
+// The filters (family, transport, category, major, primary) choose which
+// resolvers the list shows. The picks record what the user ticked, at the
+// level they ticked it, and do not depend on the filters: unticking
+// Cloudflare turns off its services on every transport and family, shown
+// or not. A run takes the resolvers that pass the filters and are picked.
 let setup = defaultSetup()
 
 function defaultSetup() {
@@ -109,11 +115,12 @@ function defaultSetup() {
 		category: new Set(pick(serverDefaults.kind, ALL.category)),
 		major: Boolean(serverDefaults.onlyMajor),
 		primary: Boolean(serverDefaults.primaryOnly),
-		// serverKeys the user unchecked. dnsbench -ui -provider starts with
-		// every other provider's resolvers unchecked.
-		excluded: new Set(
-			serverDefaults.providers?.length ? catalog.filter((e) => !serverDefaults.providers.includes(e.provider)).map(serverKey) : [],
+		// Services turned off as a whole. dnsbench -ui -provider starts with
+		// every other provider's services off.
+		off: new Set(
+			serverDefaults.providers?.length ? catalog.filter((e) => !serverDefaults.providers.includes(e.provider)).map((e) => e.service) : [],
 		),
+		excluded: new Set(), // serverKeys of single addresses turned off
 		open: new Set(), // providers expanded in the picker
 		search: "",
 	}
@@ -291,8 +298,49 @@ function candidatesFor(s) {
 	}
 }
 
+// isPicked reports whether the user's picks include e, whatever the
+// filters.
+function isPicked(e) {
+	return !setup.off.has(e.service) && !setup.excluded.has(serverKey(e))
+}
+
 function selectedBuiltins() {
-	return catalog.filter((e) => isCandidate(e) && !setup.excluded.has(serverKey(e)))
+	return catalog.filter((e) => isCandidate(e) && isPicked(e))
+}
+
+const byKey = new Map(catalog.map((e) => [serverKey(e), e]))
+
+// setService picks or drops a whole service. Picking it also brings back
+// any single addresses of it that were dropped.
+function setService(service, on) {
+	if (!on) {
+		setup.off.add(service)
+		return
+	}
+	setup.off.delete(service)
+	for (const e of catalog) if (e.service === service) setup.excluded.delete(serverKey(e))
+}
+
+// setMember picks or drops one address. Picking one address of a service
+// that is off turns the service back on for that address alone.
+function setMember(e, on) {
+	const key = serverKey(e)
+	if (!on) {
+		setup.excluded.add(key)
+		return
+	}
+	if (setup.off.has(e.service)) {
+		setup.off.delete(e.service)
+		for (const other of catalog) if (other.service === e.service) setup.excluded.add(serverKey(other))
+	}
+	setup.excluded.delete(key)
+}
+
+// searchedServices lists the services that the search matches, whatever
+// the filters. All and None act on them.
+function searchedServices() {
+	const terms = setup.search.toLowerCase().split(/\s+/).filter(Boolean)
+	return new Set(catalog.filter((e) => matchesSearch(e, terms)).map((e) => e.service))
 }
 
 function selectedResolvers() {
@@ -307,6 +355,7 @@ function presetSetup(p) {
 		category: new Set(p.category),
 		major: p.major,
 		primary: p.primary,
+		off: new Set(),
 		excluded: new Set(),
 	}
 }
@@ -332,6 +381,7 @@ function activePreset() {
 			sameSet(setup.category, new Set(p.category)) &&
 			setup.major === p.major &&
 			setup.primary === p.primary &&
+			setup.off.size === 0 &&
 			setup.excluded.size === 0 &&
 			Number($("repeats").value) === p.repeats &&
 			domainSetOf(domains) === p.domains,
@@ -410,7 +460,7 @@ function matchesSearch(e, terms) {
 // tristate returns a checkbox that is checked when every entry is chosen,
 // mixed when some are, and clear when none are.
 function tristate(entries, label) {
-	const chosen = entries.filter((e) => !setup.excluded.has(serverKey(e))).length
+	const chosen = entries.filter(isPicked).length
 	const box = el("input", { type: "checkbox", checked: chosen === entries.length, indeterminate: chosen > 0 && chosen < entries.length })
 	box.setAttribute("aria-label", label)
 	return { box, chosen }
@@ -434,7 +484,7 @@ function transportTags(entries) {
 // memberRow is one resolver: a checkbox, its name, and its address.
 function memberRow(e) {
 	const key = serverKey(e)
-	const box = el("input", { type: "checkbox", checked: !setup.excluded.has(key) })
+	const box = el("input", { type: "checkbox", checked: isPicked(e) })
 	box.dataset.key = key
 	return el(
 		"li",
@@ -494,6 +544,20 @@ function providerGroup(provider, entries, open) {
 	)
 }
 
+// emptyListHint says why the list is empty and what brings resolvers back.
+function emptyListHint(terms) {
+	const missing = [
+		[setup.family, "an address family"],
+		[setup.transport, "a transport"],
+		[setup.category, "a kind"],
+	]
+		.filter(([set]) => set.size === 0)
+		.map(([, what]) => what)
+	if (missing.length) return `Turn on ${missing.join(" and ")} to list resolvers.`
+	if (terms.length) return "No resolver matches the search."
+	return "No resolver matches these filters. Turn on another address family, transport, or kind."
+}
+
 // renderPicker lists the resolvers that the filters and the search allow,
 // grouped by provider. The major providers come first, then the others,
 // each part in alphabetical order, so a provider is always in the same
@@ -503,7 +567,7 @@ function renderPicker() {
 	const visible = catalog.filter((e) => isCandidate(e) && matchesSearch(e, terms))
 	if (visible.length === 0) {
 		$("builtin-list").replaceChildren(
-			el("li", { className: "picker-empty", textContent: terms.length ? "No resolver matches the search." : "No resolver matches these filters. Turn on another address family, transport, or kind." }),
+			el("li", { className: "picker-empty", textContent: emptyListHint(terms) }),
 		)
 		return
 	}
@@ -577,6 +641,7 @@ function saveSetup() {
 		category: [...setup.category],
 		major: setup.major,
 		primary: setup.primary,
+		off: [...setup.off],
 		excluded: [...setup.excluded],
 		domains: $("domains").value,
 		custom: $("custom-resolvers").value,
@@ -605,12 +670,15 @@ function loadSetup() {
 	const family = only(data.family, ALL.family)
 	const transport = only(data.transport, ALL.transport)
 	const category = only(data.category, ALL.category)
-	if (family.size) setup.family = family
-	if (transport.size) setup.transport = transport
-	if (category.size) setup.category = category
+	// A group may be saved empty on purpose.
+	if (Array.isArray(data.family)) setup.family = family
+	if (Array.isArray(data.transport)) setup.transport = transport
+	if (Array.isArray(data.category)) setup.category = category
 	setup.major = Boolean(data.major)
 	setup.primary = Boolean(data.primary)
-	setup.excluded = new Set(data.excluded ?? [])
+	const services = new Set(catalog.map((e) => e.service))
+	setup.off = new Set((data.off ?? []).filter((s) => services.has(s)))
+	setup.excluded = new Set((data.excluded ?? []).filter((k) => byKey.has(k)))
 	for (const [id, key] of [["domains", "domains"], ["custom-resolvers", "custom"], ["repeats", "repeats"], ["timeout", "timeout"], ["concurrency", "concurrency"], ["warmup", "warmup"], ["sort", "sort"]]) {
 		if (typeof data[key] === "string") $(id).value = data[key]
 	}
@@ -1376,7 +1444,8 @@ for (const [groupId, key] of [["filter-family", "family"], ["filter-transport", 
 	$(groupId).addEventListener("click", (event) => {
 		const value = event.target.closest("button")?.dataset.value
 		if (!value) return
-		toggleIn(setup[key], value)
+		// A group may end up empty. The list then says what to turn on.
+		toggleIn(setup[key], value, true)
 		setupChanged()
 	})
 }
@@ -1416,13 +1485,12 @@ $("resolver-search").addEventListener("input", () => {
 $("builtin-list").addEventListener("change", (event) => {
 	const box = event.target
 	if (box.dataset.key) {
-		if (box.checked) setup.excluded.delete(box.dataset.key)
-		else setup.excluded.add(box.dataset.key)
-	} else if (box.dataset.service || box.dataset.provider) {
-		const field = box.dataset.service ? "service" : "provider"
-		for (const e of catalog.filter((c) => c[field] === box.dataset[field] && isCandidate(c))) {
-			if (box.checked) setup.excluded.delete(serverKey(e))
-			else setup.excluded.add(serverKey(e))
+		setMember(byKey.get(box.dataset.key), box.checked)
+	} else if (box.dataset.service) {
+		setService(box.dataset.service, box.checked)
+	} else if (box.dataset.provider) {
+		for (const service of new Set(catalog.filter((e) => e.provider === box.dataset.provider).map((e) => e.service))) {
+			setService(service, box.checked)
 		}
 	}
 	setupChanged()
@@ -1436,12 +1504,12 @@ $("builtin-list").addEventListener("click", (event) => {
 })
 
 $("select-all").addEventListener("click", () => {
-	for (const e of catalog.filter(isCandidate)) setup.excluded.delete(serverKey(e))
+	for (const service of searchedServices()) setService(service, true)
 	setupChanged()
 })
 
 $("select-none").addEventListener("click", () => {
-	for (const e of catalog.filter(isCandidate)) setup.excluded.add(serverKey(e))
+	for (const service of searchedServices()) setService(service, false)
 	setupChanged()
 })
 

@@ -176,7 +176,10 @@ company that runs them, major providers first, then the rest, each in
 alphabetical order. Tick a company to take all its services, such as Cloudflare
 with Cloudflare-Security and Cloudflare-Family. Open it to tick one service or
 one address. To compare Cloudflare, Google, and Quad9 with their filters, click
-**None**, then tick those three. Resolvers you add under **Add your own
+**None**, then tick those three. The filters only choose what the list shows,
+and a tick holds on every transport and family: after **None**, turning on
+IPv6 or DoT picks nothing new, and a company you ticked brings its IPv6 and DoT
+resolvers along. Resolvers you add under **Add your own
 resolvers** join the selection. **Edit list** opens the domain list. The estimate under the setup
 shows how many lookups the run makes.
 Click **Start benchmark**, or press Ctrl+Enter. **Stop** ends a run early.
