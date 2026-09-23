@@ -28,12 +28,16 @@ field just arrives `undefined`. Change both files together, then check the
 dashboard against a live run:
 
 1. Run `make run-ui` and open <http://127.0.0.1:8080>.
-2. Confirm that the domain list and the built-in resolvers load.
-3. Start a benchmark. Watch the recent lookups and the results fill in.
+2. Confirm that the domain list and the built-in resolvers load, and that the
+   family and transport filters change the resolver list.
+3. Clear one resolver's checkbox, then start a benchmark. Confirm that the
+   ladder fills in without that resolver, and that clicking a row opens its
+   slowest domains and errors.
 4. Stop the run. Confirm that the status reads `stopped` and **Start
    benchmark** is enabled again.
 5. Click **Reset**. Confirm that the results clear and the form shows the
    defaults again.
+6. Check the page with the system in dark mode and at phone width.
 
 `app.js` builds every element with `textContent`. Resolver names and error
 strings come from the user, so do not switch to `innerHTML`.

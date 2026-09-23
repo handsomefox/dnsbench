@@ -4,112 +4,139 @@
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<title>dnsbench</title>
+	<link rel="icon" href="data:,">
 	<link rel="stylesheet" href="/static/style.css">
 	<script src="/static/app.js" defer></script>
 </head>
 <body>
-<header class="top">
-	<div>
+<header class="masthead">
+	<div class="brand">
 		<h1>dnsbench</h1>
-		<p class="muted">Pick domains and resolvers, start a run, and watch the results arrive.</p>
+		<p class="run-line" id="run-line">Pick resolvers and domains, then start a benchmark.</p>
 	</div>
 	<div class="actions">
-		<span id="status" class="badge">idle</span>
-		<button type="button" id="reset" class="secondary">Reset</button>
+		<span id="status" class="status" data-status="idle">idle</span>
+		<button type="button" id="reset" class="quiet">Reset</button>
 		<button type="button" id="stop" class="danger" disabled>Stop</button>
 		<button type="submit" id="start" form="config">Start benchmark</button>
 	</div>
+	<div class="progress" aria-hidden="true"><span id="progress-fill"></span></div>
 </header>
 
 <p id="notice" class="notice" role="alert" hidden></p>
 
-<main class="grid">
-	<form id="config" class="panel" autocomplete="off">
-		<h2>Configuration</h2>
+<div class="layout">
+	<form id="config" class="setup" autocomplete="off">
+		<fieldset id="setup-fields">
+			<legend class="visually-hidden">Benchmark setup</legend>
 
-		<label for="domains">Domains <span class="muted">(one per line)</span></label>
-		<textarea id="domains" name="domains" rows="10" spellcheck="false">{{.Domains}}</textarea>
-		<p class="hint"><span id="domain-count">0</span> domains</p>
+			<section class="block">
+				<div class="block-head">
+					<h2><label for="domains">Domains</label></h2>
+					<span class="count"><span id="domain-count">0</span> domains</span>
+				</div>
+				<textarea id="domains" name="domains" rows="8" spellcheck="false">{{.Domains}}</textarea>
+				<p class="hint">One per line. Lines starting with <code>#</code> are skipped.</p>
+			</section>
 
-		<fieldset>
-			<legend>Resolvers</legend>
-			<label class="inline"><input type="radio" name="resolver-source" value="builtin" checked> Built-in</label>
-			<label class="inline"><input type="radio" name="resolver-source" value="custom"> Custom</label>
+			<section class="block">
+				<div class="block-head">
+					<h2>Resolvers</h2>
+					<span class="count" id="resolver-count">0 selected</span>
+				</div>
 
-			<div id="builtin-options">
-				<label class="inline"><input type="checkbox" id="only-major" {{if .Options.OnlyMajor}}checked{{end}}> Major providers only</label>
-				<label class="inline">Addresses
-					<select id="family">
-						<option value="ipv4" {{if eq .Options.Family "ipv4"}}selected{{end}}>IPv4</option>
-						<option value="ipv6" {{if eq .Options.Family "ipv6"}}selected{{end}}>IPv6</option>
-						<option value="all" {{if eq .Options.Family "all"}}selected{{end}}>IPv4 and IPv6</option>
-					</select>
-				</label>
-				<label class="inline">Transport
-					<select id="transport">
-						<option value="plain" {{if eq .Options.Transport "plain"}}selected{{end}}>Plain DNS</option>
-						<option value="dot" {{if eq .Options.Transport "dot"}}selected{{end}}>DNS over TLS</option>
-						<option value="all" {{if eq .Options.Transport "all"}}selected{{end}}>Both</option>
-					</select>
-				</label>
-				<ul id="builtin-list" class="chips"></ul>
-			</div>
+				<div class="segmented" role="radiogroup" aria-label="Resolver source">
+					<label><input type="radio" name="resolver-source" value="builtin" checked><span>Built-in</span></label>
+					<label><input type="radio" name="resolver-source" value="custom"><span>Your own</span></label>
+				</div>
 
-			<div id="custom-options" hidden>
-				<textarea id="custom-resolvers" rows="6" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com"></textarea>
-				<p class="hint">One <code>name;ip</code> per line for plain DNS, or <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on the resolver's certificate. The address is an IPv4 or IPv6 address with no port. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
-			</div>
-			<p class="hint"><span id="resolver-count">0</span> resolvers</p>
+				<div id="builtin-options">
+					<div class="filters">
+						<div class="segmented small" role="radiogroup" aria-label="Address family">
+							<label><input type="radio" name="family" value="ipv4" {{if eq .Options.Family "ipv4"}}checked{{end}}><span>IPv4</span></label>
+							<label><input type="radio" name="family" value="ipv6" {{if eq .Options.Family "ipv6"}}checked{{end}}><span>IPv6</span></label>
+							<label><input type="radio" name="family" value="all" {{if eq .Options.Family "all"}}checked{{end}}><span>Both</span></label>
+						</div>
+						<div class="segmented small" role="radiogroup" aria-label="Transport">
+							<label><input type="radio" name="transport" value="plain" {{if eq .Options.Transport "plain"}}checked{{end}}><span>Plain</span></label>
+							<label><input type="radio" name="transport" value="dot" {{if eq .Options.Transport "dot"}}checked{{end}}><span>DoT</span></label>
+							<label><input type="radio" name="transport" value="all" {{if eq .Options.Transport "all"}}checked{{end}}><span>Both</span></label>
+						</div>
+						<label class="check"><input type="checkbox" id="only-major" {{if .Options.OnlyMajor}}checked{{end}}> Major providers only</label>
+					</div>
+					<div class="picker-tools">
+						<button type="button" class="link" id="select-all">Select all</button>
+						<button type="button" class="link" id="select-none">Select none</button>
+					</div>
+					<ul id="builtin-list" class="picker"></ul>
+				</div>
+
+				<div id="custom-options" hidden>
+					<textarea id="custom-resolvers" rows="7" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com&#10;Router;fe80::1%eth0"></textarea>
+					<p class="hint">One resolver per line: <code>name;ip</code> for plain DNS, or <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on its certificate. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
+				</div>
+			</section>
+
+			<section class="block">
+				<h2>Lookups</h2>
+				<div class="numbers">
+					<label>Repeats per domain
+						<input type="number" id="repeats" min="1" value="{{.Options.Repeats}}">
+					</label>
+					<label>Timeout per attempt, ms
+						<input type="number" id="timeout" min="100" step="100" value="{{.Options.TimeoutMs}}">
+					</label>
+					<label>Concurrent lookups
+						<input type="number" id="concurrency" min="1" value="{{.Options.Concurrency}}">
+					</label>
+					<label>Warmup lookups
+						<input type="number" id="warmup" min="0" value="{{.Options.Warmup}}">
+					</label>
+				</div>
+			</section>
 		</fieldset>
-
-		<div class="numbers">
-			<label>Repeats
-				<input type="number" id="repeats" min="1" value="{{.Options.Repeats}}">
-			</label>
-			<label>Timeout per attempt (ms)
-				<input type="number" id="timeout" min="100" step="100" value="{{.Options.TimeoutMs}}">
-			</label>
-			<label>Concurrency
-				<input type="number" id="concurrency" min="1" value="{{.Options.Concurrency}}">
-			</label>
-			<label>Warmup lookups
-				<input type="number" id="warmup" min="0" value="{{.Options.Warmup}}">
-			</label>
-		</div>
 	</form>
 
-	<section class="panel">
-		<h2>Live run</h2>
-		<div class="progress-row">
-			<span id="progress-label" class="muted">0/0 resolvers</span>
-			<span id="progress-pct">0%</span>
-		</div>
-		<progress id="progress" max="100" value="0"></progress>
-		<p class="current"><span class="muted">Querying</span> <strong id="active">nothing</strong></p>
-		<h3>Recent lookups</h3>
-		<ol id="log" class="log"></ol>
-	</section>
+	<main class="board">
+		<section class="summary" aria-label="Summary">
+			<pre id="summary">;; no results yet</pre>
+		</section>
 
-	<section class="panel">
-		<div class="panel-head">
-			<h2>Results</h2>
-			<label class="inline">Sort by
-				<select id="sort">
-					<option value="success">success rate</option>
-					<option value="mean">mean latency</option>
-				</select>
-			</label>
-		</div>
-		<table>
-			<thead>
-				<tr><th>Resolver</th><th>Success</th><th>Mean</th><th>Min / max</th></tr>
-			</thead>
-			<tbody id="results">
-				<tr><td colspan="4" class="muted">No results yet.</td></tr>
-			</tbody>
-		</table>
-	</section>
-</main>
+		<section class="ladder" aria-labelledby="ladder-title">
+			<div class="ladder-head">
+				<h2 id="ladder-title">Latency of every lookup</h2>
+				<div class="ladder-tools">
+					<label class="inline">Sort by
+						<select id="sort">
+							<option value="p50">median</option>
+							<option value="p95">95th percentile</option>
+							<option value="success">success rate</option>
+							<option value="name">name</option>
+						</select>
+					</label>
+					<button type="button" class="quiet" id="export-csv" disabled>Download CSV</button>
+					<button type="button" class="quiet" id="export-json" disabled>Download JSON</button>
+				</div>
+			</div>
+
+			<div class="grid-row axis-row" aria-hidden="true">
+				<span>Resolver</span>
+				<div class="axis" id="axis"></div>
+				<span class="num">p50</span>
+				<span class="num">p95</span>
+				<span class="num">OK</span>
+			</div>
+
+			<ol id="ladder" class="rows"></ol>
+			<p id="ladder-empty" class="empty">Each lookup lands here as a dot on a log scale, so you see how much a resolver varies as well as how fast it is. The bar marks the median, the caret the 95th percentile, and the red gutter on the right the failed lookups. Click a resolver for its slowest domains and its errors.</p>
+		</section>
+
+		<details class="log">
+			<summary>Lookup log <span class="count" id="log-count"></span></summary>
+			<ol id="log"></ol>
+		</details>
+	</main>
+</div>
 
 <script type="application/json" id="builtins">{{.Builtins}}</script>
 </body>

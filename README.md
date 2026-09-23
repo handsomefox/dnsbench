@@ -112,6 +112,14 @@ dnsbench tries to open your browser at that address. If it does not, open
 options, then click **Start benchmark**. **Stop** ends a run early. **Reset**
 clears the results and restores the default settings.
 
+Each resolver gets one row, with every lookup plotted as a dot on a log-scale
+millisecond axis. The bar marks the median, the caret marks the 95th
+percentile, and the red gutter shows the share of failed lookups, so a
+resolver that is fast on average but erratic stands out. Click a row for its
+slowest domains and its errors. **Download CSV** and **Download JSON** save the
+table with the median and 95th percentile, which the CLI reports do not
+include.
+
 `-listen` defaults to `:8080`, which accepts connections from anywhere that can
 reach your machine. The dashboard has no authentication, and it runs lookups
 against whatever resolver addresses a request names. If you expose it beyond
