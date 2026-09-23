@@ -160,7 +160,8 @@ function wireServer(s) {
 
 function formatMs(value) {
 	if (typeof value !== "number" || !Number.isFinite(value)) return "—"
-	return value < 10 ? `${value.toFixed(1)} ms` : `${Math.round(value)} ms`
+	// 9.96 would print as "10.0" with toFixed, so switch at 9.95.
+	return value < 9.95 ? `${value.toFixed(1)} ms` : `${Math.round(value)} ms`
 }
 
 function formatPct(value) {
