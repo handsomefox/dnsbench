@@ -157,6 +157,18 @@ func parseFlags() *Config {
 
 	flag.Parse()
 
+	// dnsbench takes no arguments besides flags. Ignoring one would run a
+	// benchmark for "dnsbench ui" instead of serving the dashboard.
+	if flag.NArg() > 0 {
+		arg := flag.Arg(0)
+		hint := ""
+		if fs := flag.Lookup(strings.TrimLeft(arg, "-")); fs != nil {
+			hint = fmt.Sprintf(" Did you mean -%s?", fs.Name)
+		}
+		fmt.Fprintf(os.Stderr, "Error: unexpected argument %q.%s Flags start with a dash, and dnsbench -h lists them.\n", arg, hint)
+		os.Exit(1)
+	}
+
 	// Validate configuration
 	if config.Repeats < 1 {
 		fmt.Fprintf(os.Stderr, "Error: repeats must be at least 1\n")
