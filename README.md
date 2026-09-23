@@ -74,10 +74,10 @@ The resolvers get names like `Cloudflare-v6-1`, `Cloudflare-DoT-1`,
 AliDNS serve DoQ. If your host has no IPv6 route, dnsbench marks each IPv6
 resolver as failed at once instead of retrying it.
 
-The encrypted transports measure different things. Each DoT lookup opens a new
-TLS connection and pays for the handshakes. DoH and DoQ keep their connection
-open, so after the first lookups they measure a warm connection. Compare
-resolvers within one transport. For details, see
+DoT, DoH, and DoQ all keep their connection open, so after the first lookups
+they measure a warm connection, as a phone or a system resolver would. Every
+lookup is one query for the domain's A records, sent straight to the resolver.
+For details, see
 [DNS over TLS](docs/cli.md#dns-over-tls),
 [DNS over HTTPS](docs/cli.md#dns-over-https), and
 [DNS over QUIC](docs/cli.md#dns-over-quic).

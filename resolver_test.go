@@ -149,10 +149,20 @@ func startFakeDNS(t *testing.T) *fakeDNS {
 // serveDNSStream answers length-prefixed DNS queries on every connection
 // that ln accepts, as a TCP or DoT server does, and counts the queries.
 func serveDNSStream(ln net.Listener, queries *atomic.Int32) {
+	serveDNSStreamWith(ln, queries, nil, false)
+}
+
+// serveDNSStreamWith is serveDNSStream that also counts connections in
+// conns, when it is not nil. With oneShot, it closes each connection after
+// its first answer, as a server does with a connection it considers idle.
+func serveDNSStreamWith(ln net.Listener, queries, conns *atomic.Int32, oneShot bool) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
+		}
+		if conns != nil {
+			conns.Add(1)
 		}
 		go func() {
 			defer closeQuietly(conn)
@@ -174,6 +184,9 @@ func serveDNSStream(ln net.Listener, queries *atomic.Int32) {
 				if _, err := conn.Write(append(msg, resp...)); err != nil {
 					return
 				}
+				if oneShot {
+					return
+				}
 			}
 		}()
 	}
@@ -183,6 +196,27 @@ func serveDNSStream(ln net.Listener, queries *atomic.Int32) {
 // certificate for dns.test. It returns the address, a pool that trusts the
 // certificate, and a count of the queries the server answered.
 func startFakeDoT(t *testing.T) (hostPort string, roots *x509.CertPool, queries *atomic.Int32) {
+	t.Helper()
+	f := startFakeDoTWith(t, false)
+	return f.hostPort, f.roots, &f.queries
+}
+
+// fakeDoT is a DNS over TLS server on loopback with a self-signed
+// certificate for dns.test, which counts its connections and queries.
+type fakeDoT struct {
+	hostPort string
+	roots    *x509.CertPool
+	queries  atomic.Int32
+	conns    atomic.Int32
+}
+
+func (f *fakeDoT) config() *tls.Config {
+	return &tls.Config{ServerName: "dns.test", RootCAs: f.roots, MinVersion: tls.VersionTLS12}
+}
+
+// startFakeDoTWith starts a fakeDoT. With oneShot, the server closes each
+// connection after its first answer.
+func startFakeDoTWith(t *testing.T, oneShot bool) *fakeDoT {
 	t.Helper()
 	cert, roots := selfSignedCert(t, "dns.test")
 
@@ -194,9 +228,43 @@ func startFakeDoT(t *testing.T) (hostPort string, roots *x509.CertPool, queries 
 	ln := tls.NewListener(tcp, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 	t.Cleanup(func() { closeQuietly(ln) })
 
-	queries = &atomic.Int32{}
-	go serveDNSStream(ln, queries)
-	return tcp.Addr().String(), roots, queries
+	f := &fakeDoT{hostPort: tcp.Addr().String(), roots: roots}
+	go serveDNSStreamWith(ln, &f.queries, &f.conns, oneShot)
+	return f
+}
+
+// DoT keeps its connection between lookups, as DoH and DoQ do.
+func TestResolver_DoTReusesConnections(t *testing.T) {
+	f := startFakeDoTWith(t, false)
+	r := newResolver("127.0.0.1", f.hostPort, f.config(), 1)
+	defer r.Close()
+	for range 3 {
+		if _, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, ResolverRetryDisabled); err != nil {
+			t.Fatalf("QueryDNS() error = %v", err)
+		}
+	}
+	if got := f.queries.Load(); got != 3 {
+		t.Errorf("server saw %d queries, want 3", got)
+	}
+	if got := f.conns.Load(); got != 1 {
+		t.Errorf("server saw %d connections, want 1 shared by every lookup", got)
+	}
+}
+
+// A server may close a connection that the resolver keeps for later. The
+// next lookup must then open a fresh one within its only attempt.
+func TestResolver_DoTRecoversFromClosedIdleConnection(t *testing.T) {
+	f := startFakeDoTWith(t, true)
+	r := newResolver("127.0.0.1", f.hostPort, f.config(), 1)
+	defer r.Close()
+	for i := range 3 {
+		if _, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, ResolverRetryDisabled); err != nil {
+			t.Fatalf("lookup %d: QueryDNS() error = %v", i+1, err)
+		}
+	}
+	if got := f.conns.Load(); got < 3 {
+		t.Errorf("server saw %d connections, want a fresh one for each lookup", got)
+	}
 }
 
 // selfSignedCert returns a certificate for name and a pool that trusts it.
@@ -328,9 +396,9 @@ func TestResolver_DNSOverHTTPS(t *testing.T) {
 				t.Fatalf("QueryDNS() error = %v", err)
 			}
 		}
-		// Three lookups, each asking for A and AAAA.
-		if got := queries.Load(); got != 6 {
-			t.Errorf("server saw %d queries, want 6", got)
+		// Three lookups, one A query each.
+		if got := queries.Load(); got != 3 {
+			t.Errorf("server saw %d queries, want 3", got)
 		}
 	})
 
@@ -338,9 +406,9 @@ func TestResolver_DNSOverHTTPS(t *testing.T) {
 		r := newDoHResolver("127.0.0.1", "https://example.com/dns-query", hostPort, tlsConfig("example.com"), 2)
 		before := queries.Load()
 		warmUp(t.Context(), r, []string{"a.example.", "b.example."}, 3)
-		// Two domains, three runs each, and each lookup asks for A and AAAA.
-		if got := queries.Load() - before; got != 12 {
-			t.Errorf("server saw %d warmup queries, want 12", got)
+		// Two domains, three runs each, one A query per lookup.
+		if got := queries.Load() - before; got != 6 {
+			t.Errorf("server saw %d warmup queries, want 6", got)
 		}
 	})
 
@@ -445,18 +513,15 @@ func TestResolver_DoesNotRetryNXDOMAIN(t *testing.T) {
 	r := newResolver("127.0.0.1", hostPort, &tls.Config{ServerName: "dns.test", RootCAs: roots, MinVersion: tls.VersionTLS12}, 1)
 
 	start := time.Now()
-	// The trailing dot makes the name absolute. Without it, a search domain
-	// in the host's resolv.conf adds queries for nx.example.<search>.
-	_, err := r.QueryDNS(t.Context(), "nx.example.", 2*time.Second, ResolverRetryEnabled)
+	_, err := r.QueryDNS(t.Context(), "nx.example", 2*time.Second, ResolverRetryEnabled)
 	if err == nil {
 		t.Fatal("QueryDNS() succeeded for a name that does not exist")
 	}
 	if took := time.Since(start); took > 900*time.Millisecond {
 		t.Errorf("QueryDNS() took %v, so it retried a final answer", took)
 	}
-	// One lookup asks for A and AAAA, so one attempt sends two queries.
-	if got := queries.Load(); got > 2 {
-		t.Errorf("server saw %d queries, want at most 2", got)
+	if got := queries.Load(); got != 1 {
+		t.Errorf("server saw %d queries, want 1", got)
 	}
 }
 

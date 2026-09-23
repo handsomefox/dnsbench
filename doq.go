@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -11,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"sync"
-	"time"
 
 	"github.com/quic-go/quic-go"
 )
@@ -21,25 +19,8 @@ import (
 // QUIC connection per resolver and opens a stream on it for each query, so
 // only the first lookups pay for the QUIC handshake, as with DoH.
 func newDoQResolver(serverAddr, hostPort string, tlsConfig *tls.Config, concurrency int) *Resolver {
-	if concurrency < 1 {
-		concurrency = 1
-	}
 	client := &doqClient{hostPort: hostPort, tlsConfig: tlsConfig}
-	return &Resolver{
-		netResolver: &net.Resolver{
-			PreferGo: true,
-			Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return &doqConn{ctx: ctx, client: client}, nil
-			},
-		},
-		dialer:      &net.Dialer{},
-		doq:         client,
-		close:       client.close,
-		hostPort:    hostPort,
-		serverAddr:  serverAddr,
-		concurrency: concurrency,
-		sem:         make(chan struct{}, concurrency),
-	}
+	return newResolverWith(client, &net.Dialer{}, serverAddr, hostPort, concurrency)
 }
 
 // doqClient holds the QUIC connection that a DoQ resolver's lookups share.
@@ -69,7 +50,7 @@ func (c *doqClient) connection(ctx context.Context) (*quic.Conn, error) {
 
 // exchange sends one DNS message on a new stream and returns the answer.
 // RFC 9250 requires message ID 0 on the wire, so exchange sends 0 and puts
-// the caller's ID back into the answer, which Go's resolver checks.
+// the caller's ID back into the answer, which checkAnswer checks.
 func (c *doqClient) exchange(ctx context.Context, query []byte) ([]byte, error) {
 	if len(query) < 12 {
 		return nil, errors.New("DNS query is too short")
@@ -89,7 +70,7 @@ func (c *doqClient) exchange(ctx context.Context, query []byte) ([]byte, error) 
 	}
 
 	id := binary.BigEndian.Uint16(query)
-	msg := binary.BigEndian.AppendUint16(nil, uint16(len(query))) //nolint:gosec // Go's resolver never sends a query over 64 KiB
+	msg := binary.BigEndian.AppendUint16(nil, uint16(len(query))) //nolint:gosec // buildQuery never makes a query over 64 KiB
 	msg = binary.BigEndian.AppendUint16(msg, 0)
 	msg = append(msg, query[2:]...)
 	if _, err := stream.Write(msg); err != nil {
@@ -151,50 +132,3 @@ func (c *doqClient) close() {
 	}
 	c.conn = nil
 }
-
-// doqConn lets Go's resolver speak DNS over QUIC, the same way dohConn
-// does for DoH: it takes the resolver's length-prefixed queries and frames
-// the answers for the resolver to read back.
-type doqConn struct {
-	ctx     context.Context
-	client  *doqClient
-	pending bytes.Buffer
-	answers bytes.Buffer
-}
-
-func (c *doqConn) Write(b []byte) (int, error) {
-	c.pending.Write(b)
-	for c.pending.Len() >= 2 {
-		size := int(binary.BigEndian.Uint16(c.pending.Bytes()))
-		if c.pending.Len() < 2+size {
-			break
-		}
-		c.pending.Next(2)
-		answer, err := c.client.exchange(c.ctx, bytes.Clone(c.pending.Next(size)))
-		if err != nil {
-			return 0, err
-		}
-		c.answers.Write(binary.BigEndian.AppendUint16(nil, uint16(len(answer)))) //nolint:gosec // a two-byte length prefix caps the answer at 64 KiB
-		c.answers.Write(answer)
-	}
-	return len(b), nil
-}
-
-func (c *doqConn) Read(b []byte) (int, error) {
-	if c.answers.Len() == 0 {
-		return 0, io.EOF
-	}
-	return c.answers.Read(b)
-}
-
-func (c *doqConn) Close() error                     { return nil }
-func (c *doqConn) LocalAddr() net.Addr              { return doqAddr(c.client.hostPort) }
-func (c *doqConn) RemoteAddr() net.Addr             { return doqAddr(c.client.hostPort) }
-func (c *doqConn) SetDeadline(time.Time) error      { return nil } // the query context carries the deadline
-func (c *doqConn) SetReadDeadline(time.Time) error  { return nil }
-func (c *doqConn) SetWriteDeadline(time.Time) error { return nil }
-
-type doqAddr string
-
-func (a doqAddr) Network() string { return "quic" }
-func (a doqAddr) String() string  { return string(a) }

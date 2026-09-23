@@ -1,12 +1,19 @@
 # CLI reference
 
 dnsbench benchmarks one resolver at a time. For each resolver it runs the
-hostname lookups concurrently, up to `-c` at once. A plain DNS resolver gets its
-queries over UDP port 53, and over TCP when a UDP answer arrives truncated. A
-DNS over TLS (DoT) resolver gets them over TLS on TCP port 853. A DNS over
-HTTPS (DoH) resolver gets them as HTTPS POST requests on TCP port 443. A DNS
-over QUIC (DoQ) resolver gets them over QUIC on UDP port 853. The built-in
-resolver and domain lists are in [`data.go`](../data.go).
+hostname lookups concurrently, up to `-c` at once. A lookup is one recursive
+query for the domain's A records, and it succeeds when the answer holds at
+least one. A plain DNS resolver gets its queries over UDP port 53, and over TCP
+when a UDP answer arrives truncated. A DNS over TLS (DoT) resolver gets them
+over TLS on TCP port 853. A DNS over HTTPS (DoH) resolver gets them as HTTPS
+POST requests on TCP port 443. A DNS over QUIC (DoQ) resolver gets them over
+QUIC on UDP port 853. The built-in resolver and domain lists are in
+[`data.go`](../data.go).
+
+dnsbench builds each query itself and sends it straight to the resolver. The
+host's `/etc/hosts`, its search domains, and its `resolv.conf` options play no
+part, and every name is queried as an absolute name. Each query advertises an
+EDNS UDP size of 1232 bytes, so answers rarely need the TCP retry.
 
 ## Flags
 
@@ -73,13 +80,12 @@ and never reach the statistics.
 A DoT resolver must present a certificate that your system trusts and that
 matches its TLS name. If it does not, the pre-check above fails the resolver.
 
-Go's resolver opens a new connection for every query and does not reuse it.
-Every DoT lookup therefore pays for a TCP handshake and a TLS handshake before
-it gets its answer, so DoT latency measures a cold connection. A client that
-keeps one connection open, such as systemd-resolved or Android's private DNS,
-pays that cost once. dnsbench keeps TLS sessions for each resolver, so the
-handshakes after the first resume the session and skip the certificate
-exchange. DoT latencies are comparable with each other, not with plain DNS.
+dnsbench keeps DoT connections open between lookups and sends one query at a
+time on each, as systemd-resolved and Android's private DNS do. Only the first
+lookups against a DoT resolver pay for the TCP and TLS handshakes, so DoT
+latency mostly measures a warm connection, like DoH and DoQ. When a server
+closes a connection that dnsbench kept, the next lookup opens a fresh one
+within the same attempt, and the handshake counts toward that lookup.
 
 ### DNS over HTTPS
 
@@ -91,9 +97,7 @@ host in the URL as the TLS server name and the HTTP `Host`.
 The HTTP client keeps its connections open between lookups and uses HTTP/2
 where the server offers it. Only the first lookups against a DoH resolver pay
 for the TCP and TLS handshakes, so DoH latency mostly measures a warm
-connection. That is the opposite of DoT, which pays for both handshakes on
-every lookup, so a DoH resolver can look faster than the DoT service of the
-same provider for that reason alone.
+connection.
 
 ### DNS over QUIC
 
@@ -102,10 +106,10 @@ port 853 with the ALPN protocol `doq`, and sends each query on a new stream of
 that connection with a two-byte length prefix. The DNS message ID on the wire
 is `0`, as the RFC requires.
 
-Like DoH, DoQ keeps its connection for the whole resolver, so after the first
-lookups it measures a warm connection. QUIC's handshake takes one round trip,
-so a cold DoQ lookup costs about two round trips, where a cold DoT lookup
-costs three. Few providers serve DoQ: of the built-in list, AdGuard, NextDNS,
+Like DoT and DoH, DoQ keeps its connection for the whole resolver, so after
+the first lookups it measures a warm connection. QUIC's handshake takes one
+round trip, so a cold DoQ lookup costs about two round trips, where a cold DoT
+lookup costs three. Few providers serve DoQ: of the built-in list, AdGuard, NextDNS,
 Quad9, and AliDNS do.
 
 Concurrent lookups share that one connection, and some servers answer them

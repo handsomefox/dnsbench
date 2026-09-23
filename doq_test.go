@@ -106,14 +106,14 @@ func TestResolver_DNSOverQUIC(t *testing.T) {
 		r := newDoQResolver("127.0.0.1", f.hostPort, named("dns.test"), 2)
 		defer r.Close()
 		for range 3 {
-			// Go's resolver rejects an answer whose ID differs from its
+			// checkAnswer rejects an answer whose ID differs from its
 			// query, so success also shows that the ID was restored.
 			if _, err := r.QueryDNS(t.Context(), "doq.example.", 2*time.Second, ResolverRetryDisabled); err != nil {
 				t.Fatalf("QueryDNS() error = %v", err)
 			}
 		}
-		if got := f.queries.Load(); got != 6 {
-			t.Errorf("server saw %d queries, want 6: three lookups of A and AAAA", got)
+		if got := f.queries.Load(); got != 3 {
+			t.Errorf("server saw %d queries, want 3: one A query per lookup", got)
 		}
 		if got := f.conns.Load(); got != 1 {
 			t.Errorf("server saw %d connections, want 1 shared by every lookup", got)
