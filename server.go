@@ -269,8 +269,21 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 	if len(domains) == 0 {
 		domains = defaultSites
 	}
+	for _, d := range domains {
+		if !isValidDomain(d) {
+			return nil, nil, nil, fmt.Errorf("invalid domain %q", d)
+		}
+	}
 
 	servers := req.Resolvers
+	for i, srv := range servers {
+		if !isValidServerAddr(srv.Addr) {
+			return nil, nil, nil, fmt.Errorf("invalid resolver address %q: want an IP address without a port", srv.Addr)
+		}
+		if srv.Name == "" {
+			servers[i].Name = srv.Addr
+		}
+	}
 	if len(servers) == 0 {
 		if cfg.OnlyMajorResolvers {
 			servers = builtinMajorResolvers

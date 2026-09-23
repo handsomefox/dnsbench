@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
-	"net"
 	"os"
 	"os/signal"
 	"runtime"
@@ -321,8 +320,7 @@ func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
 			return nil, fmt.Errorf("empty name or IP at line %d", lineNum)
 		}
 
-		// Basic IP validation
-		if net.ParseIP(addr) == nil {
+		if !isValidServerAddr(addr) {
 			return nil, fmt.Errorf("invalid IP address at line %d: %s", lineNum, addr)
 		}
 

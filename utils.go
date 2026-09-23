@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"os"
 	"runtime"
 	"sort"
@@ -178,6 +179,12 @@ func isValidDomain(domain string) bool {
 		strings.Contains(domain, ".") &&
 		!strings.HasPrefix(domain, ".") &&
 		!strings.HasSuffix(domain, ".")
+}
+
+// isValidServerAddr reports whether addr is an IP literal without a port.
+// Resolver files and the Web UI API both accept only such addresses.
+func isValidServerAddr(addr string) bool {
+	return net.ParseIP(addr) != nil
 }
 
 func truncateString(s string, maxLen int) string {
