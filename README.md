@@ -125,7 +125,7 @@ see [input files](docs/cli.md#input-files).
 CSV writes the resolvers that answered to standard output and the ones that
 failed to standard error, so the redirect above captures only the successes.
 JSON puts both groups in one document, under `results` and `failures`. A
-resolver with no successful lookup has `null` for `min`, `max`, and `mean`. See
+resolver with no successful lookup has `null` for every latency field. See
 [report formats](docs/cli.md#report-formats).
 
 ## Start the Web UI
@@ -151,8 +151,7 @@ The bar marks the median, the caret marks the 95th
 percentile, and the red gutter shows the share of failed lookups, so a
 resolver that is fast on average but erratic stands out. Click a row for its
 slowest domains and its errors. **Download CSV** and **Download JSON** save the
-table with the median and 95th percentile, which the CLI reports do not
-include.
+table.
 
 `-listen` defaults to `:8080`, which accepts connections from anywhere that can
 reach your machine. The dashboard has no authentication, and it runs lookups

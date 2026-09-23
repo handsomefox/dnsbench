@@ -136,6 +136,8 @@ func TestCalculateStats(t *testing.T) {
 				Min:    1.0,
 				Max:    5.0,
 				Mean:   3.0,
+				Median: 3.0,
+				P95:    4.8,
 				Count:  5,
 				Errors: 2,
 				Total:  7,
@@ -159,6 +161,18 @@ func TestCalculateStats(t *testing.T) {
 			if math.IsNaN(got.Mean) != math.IsNaN(tt.want.Mean) ||
 				(!math.IsNaN(got.Mean) && got.Mean != tt.want.Mean) {
 				t.Errorf("calculateStats() Mean = %v, want %v", got.Mean, tt.want.Mean)
+			}
+			for _, f := range []struct {
+				name      string
+				got, want float64
+			}{{"Median", got.Median, tt.want.Median}, {"P95", got.P95, tt.want.P95}} {
+				if tt.want.Count == 0 {
+					if !math.IsNaN(f.got) {
+						t.Errorf("calculateStats() %s = %v, want NaN", f.name, f.got)
+					}
+				} else if math.Abs(f.got-f.want) > 1e-9 {
+					t.Errorf("calculateStats() %s = %v, want %v", f.name, f.got, f.want)
+				}
 			}
 			if got.Count != tt.want.Count {
 				t.Errorf("calculateStats() Count = %v, want %v", got.Count, tt.want.Count)
@@ -188,7 +202,7 @@ func TestRunBenchmark_ValidatesInput(t *testing.T) {
 
 func TestStats_MarshalJSON(t *testing.T) {
 	failed := Stats{Min: math.NaN(), Max: math.NaN(), Mean: math.NaN(), Errors: 3, Total: 3}
-	ok := Stats{Min: 1.5, Max: 4, Mean: 2.25, Count: 2, Total: 2}
+	ok := Stats{Min: 1.5, Max: 4, Mean: 2.25, Median: 2.25, P95: 3.8, Count: 2, Total: 2}
 
 	tests := []struct {
 		name string
@@ -198,23 +212,23 @@ func TestStats_MarshalJSON(t *testing.T) {
 		{
 			name: "NaN latencies become null",
 			v:    failed,
-			want: `{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3,"retried":0}`,
+			want: `{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0}`,
 		},
 		{
 			name: "finite latencies stay numbers",
 			v:    ok,
-			want: `{"min":1.5,"max":4,"mean":2.25,"count":2,"errors":0,"total":2,"retried":0}`,
+			want: `{"min":1.5,"max":4,"mean":2.25,"median":2.25,"p95":3.8,"count":2,"errors":0,"total":2,"retried":0}`,
 		},
 		{
 			// The SSE reporter stores Stats by value inside a map.
 			name: "inside a map",
 			v:    map[string]any{"stats": failed},
-			want: `{"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3,"retried":0}}`,
+			want: `{"stats":{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0}}`,
 		},
 		{
 			name: "inside a result",
 			v:    BenchmarkResult{Server: DNSServer{Name: "a", Addr: "192.0.2.1"}, Stats: failed},
-			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3,"retried":0}}`,
+			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0}}`,
 		},
 	}
 

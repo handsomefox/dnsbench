@@ -39,9 +39,13 @@ type BenchmarkResult struct {
 
 // Stats contains latency statistics for a resolver
 type Stats struct {
-	Min    float64 `json:"min"`
-	Max    float64 `json:"max"`
-	Mean   float64 `json:"mean"`
+	Min  float64 `json:"min"`
+	Max  float64 `json:"max"`
+	Mean float64 `json:"mean"`
+	// Median and P95 are the 50th and 95th percentiles, interpolated
+	// between the two nearest lookups, as the dashboard computes them.
+	Median float64 `json:"median"`
+	P95    float64 `json:"p95"`
 	Count  int     `json:"count"`
 	Errors int     `json:"errors"`
 	Total  int     `json:"total"`
@@ -50,8 +54,8 @@ type Stats struct {
 	Retried int `json:"retried"`
 }
 
-// MarshalJSON encodes Min, Max, and Mean as null when they are NaN, which
-// happens when no lookup succeeded. encoding/json rejects NaN outright.
+// MarshalJSON encodes the latency fields as null when no lookup succeeded,
+// where they would be NaN, which encoding/json rejects outright.
 // The receiver is a value so the method also applies inside maps and
 // interfaces, where the SSE reporter puts Stats.
 func (s Stats) MarshalJSON() ([]byte, error) {
@@ -59,19 +63,32 @@ func (s Stats) MarshalJSON() ([]byte, error) {
 		Min     *float64 `json:"min"`
 		Max     *float64 `json:"max"`
 		Mean    *float64 `json:"mean"`
+		Median  *float64 `json:"median"`
+		P95     *float64 `json:"p95"`
 		Count   int      `json:"count"`
 		Errors  int      `json:"errors"`
 		Total   int      `json:"total"`
 		Retried int      `json:"retried"`
 	}{
-		Min:     finiteOrNil(s.Min),
-		Max:     finiteOrNil(s.Max),
-		Mean:    finiteOrNil(s.Mean),
+		Min:     s.latency(s.Min),
+		Max:     s.latency(s.Max),
+		Mean:    s.latency(s.Mean),
+		Median:  s.latency(s.Median),
+		P95:     s.latency(s.P95),
 		Count:   s.Count,
 		Errors:  s.Errors,
 		Total:   s.Total,
 		Retried: s.Retried,
 	})
+}
+
+// latency returns f for JSON, or nil when no lookup succeeded or f is not
+// finite.
+func (s Stats) latency(f float64) *float64 {
+	if s.Count == 0 {
+		return nil
+	}
+	return finiteOrNil(f)
 }
 
 func finiteOrNil(f float64) *float64 {
@@ -422,6 +439,8 @@ func calculateStats(latencies []float64, errs, total int) Stats {
 			Min:    math.NaN(),
 			Max:    math.NaN(),
 			Mean:   math.NaN(),
+			Median: math.NaN(),
+			P95:    math.NaN(),
 			Count:  0,
 			Errors: errs,
 			Total:  total,
@@ -439,8 +458,18 @@ func calculateStats(latencies []float64, errs, total int) Stats {
 		Min:    latencies[0],
 		Max:    latencies[len(latencies)-1],
 		Mean:   sum / float64(len(latencies)),
+		Median: percentile(latencies, 0.5),
+		P95:    percentile(latencies, 0.95),
 		Count:  len(latencies),
 		Errors: errs,
 		Total:  total,
 	}
+}
+
+// percentile returns the p-th quantile of sorted, interpolated linearly
+// between the two nearest values. sorted must not be empty.
+func percentile(sorted []float64, p float64) float64 {
+	i := float64(len(sorted)-1) * p
+	lo, hi := int(math.Floor(i)), int(math.Ceil(i))
+	return sorted[lo] + (sorted[hi]-sorted[lo])*(i-float64(lo))
 }

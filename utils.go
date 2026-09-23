@@ -31,10 +31,11 @@ func printSummary(results []BenchmarkResult, outputType OutputType) {
 		}
 	}
 
+	// The median, unlike the mean, is not pulled up by one slow lookup.
 	sort.Slice(valid, func(i, j int) bool {
 		vi, vj := valid[i].Stats.SuccessRate(), valid[j].Stats.SuccessRate()
 		if vi == vj {
-			return valid[i].Stats.Mean < valid[j].Stats.Mean
+			return valid[i].Stats.Median < valid[j].Stats.Median
 		}
 		return vi > vj
 	})
@@ -70,12 +71,14 @@ func printResultsCSV(w io.Writer, results []BenchmarkResult, failed bool) {
 		}
 		return
 	}
-	_, _ = fmt.Fprintln(w, "Resolver,Success Rate,Retried,Mean (ms),Min (ms),Max (ms),Total Queries")
+	_, _ = fmt.Fprintln(w, "Resolver,Success Rate,Retried,Median (ms),P95 (ms),Mean (ms),Min (ms),Max (ms),Total Queries")
 	for _, r := range results {
-		_, _ = fmt.Fprintf(w, "%s,%.1f,%d,%.2f,%.2f,%.2f,%d\n",
+		_, _ = fmt.Fprintf(w, "%s,%.1f,%d,%.2f,%.2f,%.2f,%.2f,%.2f,%d\n",
 			r.Server.Name,
 			r.Stats.SuccessRate()*100,
 			r.Stats.Retried,
+			r.Stats.Median,
+			r.Stats.P95,
 			r.Stats.Mean,
 			r.Stats.Min,
 			r.Stats.Max,
@@ -105,14 +108,16 @@ func printResultsTable(w io.Writer, results []BenchmarkResult, failed bool) {
 		}
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%-*s %10s %8s %10s %10s %10s %10s\n",
-		nameWidth, "Resolver", "Success%", "Retried", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
-	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("-", nameWidth+64))
+	_, _ = fmt.Fprintf(w, "%-*s %10s %8s %10s %10s %10s %10s %10s %10s\n",
+		nameWidth, "Resolver", "Success%", "Retried", "Median(ms)", "P95(ms)", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
+	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("-", nameWidth+86))
 	for _, r := range results {
-		_, _ = fmt.Fprintf(w, "%-*s %9.1f%% %8d %9.2f %9.2f %9.2f %10d\n",
+		_, _ = fmt.Fprintf(w, "%-*s %9.1f%% %8d %10.2f %10.2f %10.2f %10.2f %10.2f %10d\n",
 			nameWidth, r.Server.Name,
 			r.Stats.SuccessRate()*100,
 			r.Stats.Retried,
+			r.Stats.Median,
+			r.Stats.P95,
 			r.Stats.Mean,
 			r.Stats.Min,
 			r.Stats.Max,

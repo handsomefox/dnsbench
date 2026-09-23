@@ -174,8 +174,14 @@ you one domain rather than the run. A file with no valid domains is an error.
 
 ## Report formats
 
-Resolvers that answered sort by descending success rate, then by ascending mean
-latency. Resolvers with no successful lookup form a separate failed group. All latencies are milliseconds and count successful lookups only.
+Resolvers that answered sort by descending success rate, then by ascending
+median latency. The median ignores a few slow lookups that would pull the mean
+up. Resolvers with no successful lookup form a separate failed group. All
+latencies are milliseconds and count successful lookups only.
+
+The `table` and `csv` reports show, for each resolver, the success rate, the
+retried lookups, the median, the 95th percentile, the mean, the fastest and
+slowest lookups, and the planned lookups.
 
 | Format | Output |
 | --- | --- |
@@ -198,6 +204,8 @@ Each entry in `results` and `failures` has these fields:
 | `stats.min` | Fastest successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.max` | Slowest successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.mean` | Mean successful lookup, in milliseconds. `null` when no lookup succeeded. |
+| `stats.median` | Median successful lookup, in milliseconds, interpolated between the two nearest lookups. `null` when no lookup succeeded. |
+| `stats.p95` | 95th percentile of the successful lookups, in milliseconds, interpolated the same way. `null` when no lookup succeeded. |
 | `stats.count` | Successful measured lookups |
 | `stats.errors` | Measured lookups that failed, after any retries |
 | `stats.total` | Planned measured lookups, the domain count multiplied by `-n` |
@@ -217,7 +225,7 @@ The `summary` object has these fields:
 `fastest_resolver` and `slowest_resolver` follow the sort order, which puts
 success rate ahead of latency. A resolver that answered every lookup slowly
 therefore outranks one that answered most of them fast, and neither field is a
-reliable answer to "which resolver has the lowest mean latency". Read
+reliable answer to "which resolver has the lowest median latency". Read
 `results` yourself if that is the question. The encoder drops both fields when
 no valid result exists. An empty group encodes as `[]`.
 
