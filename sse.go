@@ -11,9 +11,9 @@ import (
 
 // SSEEvent represents a server-sent event message pushed to UI clients.
 type SSEEvent struct {
-	RunID  string      `json:"runId"`
-	Type   string      `json:"type"`
-	Detail interface{} `json:"detail,omitempty"`
+	RunID  string `json:"runId"`
+	Type   string `json:"type"`
+	Detail any    `json:"detail,omitempty"`
 }
 
 type sseClient struct {

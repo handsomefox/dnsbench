@@ -36,7 +36,7 @@ func (r *SSEReporter) OnStart(totalResolvers int, domains []string) {
 	r.hub.Broadcast(SSEEvent{
 		Type:  "start",
 		RunID: r.runID,
-		Detail: map[string]interface{}{
+		Detail: map[string]any{
 			"totalResolvers": totalResolvers,
 			"domainCount":    len(domains),
 			"domains":        domains,
@@ -48,7 +48,7 @@ func (r *SSEReporter) OnResolverStart(server DNSServer, index, total int) {
 	r.hub.Broadcast(SSEEvent{
 		Type:  "resolver_start",
 		RunID: r.runID,
-		Detail: map[string]interface{}{
+		Detail: map[string]any{
 			"server": server,
 			"index":  index,
 			"total":  total,
@@ -57,7 +57,7 @@ func (r *SSEReporter) OnResolverStart(server DNSServer, index, total int) {
 }
 
 func (r *SSEReporter) OnQueryResult(server DNSServer, domain string, latencyMs float64, err error) {
-	detail := map[string]interface{}{
+	detail := map[string]any{
 		"server":  server,
 		"domain":  domain,
 		"latency": latencyMs,
@@ -76,7 +76,7 @@ func (r *SSEReporter) OnResolverDone(server DNSServer, stats Stats, took time.Du
 	r.hub.Broadcast(SSEEvent{
 		Type:  "resolver_done",
 		RunID: r.runID,
-		Detail: map[string]interface{}{
+		Detail: map[string]any{
 			"server": server,
 			"stats":  stats,
 			"tookMs": took.Milliseconds(),
@@ -85,7 +85,7 @@ func (r *SSEReporter) OnResolverDone(server DNSServer, stats Stats, took time.Du
 }
 
 func (r *SSEReporter) OnComplete(results []BenchmarkResult, err error) {
-	detail := map[string]interface{}{
+	detail := map[string]any{
 		"results": results,
 	}
 	if err != nil {

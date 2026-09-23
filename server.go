@@ -215,7 +215,7 @@ func (s *uiServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	s.hub.Broadcast(SSEEvent{
 		RunID: runID,
 		Type:  "stop",
-		Detail: map[string]interface{}{
+		Detail: map[string]any{
 			"at": time.Now().UnixMilli(),
 		},
 	})
@@ -239,7 +239,7 @@ func (s *uiServer) handleReset(w http.ResponseWriter, r *http.Request) {
 
 	s.hub.Broadcast(SSEEvent{
 		Type: "reset",
-		Detail: map[string]interface{}{
+		Detail: map[string]any{
 			"at": time.Now().UnixMilli(),
 		},
 	})
@@ -282,7 +282,7 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 	return &cfg, servers, domains, nil
 }
 
-func writeJSON(w http.ResponseWriter, v interface{}) {
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
