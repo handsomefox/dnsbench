@@ -343,7 +343,9 @@ func TestResolver_DoesNotRetryNXDOMAIN(t *testing.T) {
 	r := newResolver("127.0.0.1", hostPort, &tls.Config{ServerName: "dns.test", RootCAs: roots, MinVersion: tls.VersionTLS12}, 1)
 
 	start := time.Now()
-	_, err := r.QueryDNS(t.Context(), "nx.example", 2*time.Second, ResolverRetryEnabled)
+	// The trailing dot makes the name absolute. Without it, a search domain
+	// in the host's resolv.conf adds queries for nx.example.<search>.
+	_, err := r.QueryDNS(t.Context(), "nx.example.", 2*time.Second, ResolverRetryEnabled)
 	if err == nil {
 		t.Fatal("QueryDNS() succeeded for a name that does not exist")
 	}
