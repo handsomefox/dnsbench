@@ -9,6 +9,19 @@ plain DNS or DNS over TLS, on IPv4 or IPv6. It reports latency and success rate
 as text, a table, CSV, or JSON, and an embedded Web UI shows a run while it
 happens.
 
+## Install
+
+Download an archive for your system from the
+[latest release](https://github.com/handsomefox/dnsbench/releases/latest), or
+install with Go 1.27.1 or later:
+
+```bash
+go install github.com/handsomefox/dnsbench@latest
+```
+
+The examples below run `./bin/dnsbench` from a checkout. After `go install`,
+run `dnsbench` instead.
+
 ## Build
 
 You need Go 1.27.1 or later.
