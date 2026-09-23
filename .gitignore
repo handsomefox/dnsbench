@@ -38,3 +38,6 @@ dist/
 
 # playwright-cli snapshots and screenshots
 .playwright-cli/
+
+# The binary that go build writes to the repository root
+/dnsbench
