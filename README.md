@@ -24,17 +24,18 @@ run `dnsbench` instead.
 
 ### On Android with Termux
 
-In [Termux](https://termux.dev), download the `Android_arm64` archive and run
-the binary from it:
+In [Termux](https://termux.dev), download the `Android_arm64` archive and start
+the dashboard:
 
 ```bash
 curl -LO https://github.com/handsomefox/dnsbench/releases/latest/download/dnsbench_Android_arm64.tar.gz
 tar -xzf dnsbench_Android_arm64.tar.gz
-./dnsbench -major -primary
+./dnsbench -ui
 ```
 
-`./dnsbench -ui` opens the dashboard in the Android browser through
-`termux-open-url`, which the `termux-tools` package provides. Use the Android
+The dashboard opens in the Android browser through `termux-open-url`, which
+the `termux-tools` package provides. If it does not open, go to
+<http://127.0.0.1:8080>. Use the Android
 build, not `Linux_arm64`: only the Android build finds Android's CA
 certificates, so the Linux build fails every DoT, DoH, and DoQ resolver
 there.
