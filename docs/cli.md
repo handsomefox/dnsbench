@@ -22,7 +22,8 @@ EDNS UDP size of 1232 bytes, so answers rarely need the TCP retry.
 
 ## Flags
 
-`./bin/dnsbench -h` prints the flags and defaults of the binary you built.
+`./bin/dnsbench -h` prints the flags of the binary you built, grouped by what
+they control, with their defaults.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -32,7 +33,7 @@ EDNS UDP size of 1232 bytes, so answers rarely need the TCP retry.
 | `-t duration` | `3s` | Timeout for one lookup attempt. Minimum `100ms`. Takes Go durations such as `1500ms` and `2s`. |
 | `-retries int` | `2` | Retries of a failed lookup attempt. `0` disables them. |
 | `-c int` | `max(runtime.NumCPU()/2, 2)` | Maximum lookups in flight at once, across all resolvers. Minimum `1`. |
-| `-output string` | `default` | Report format: `table`, `csv`, or `json`. `default` is `table`. |
+| `-output string` | `table` | Report format: `table`, `csv`, or `json`. `default` still means `table`. |
 | `-log string` | `default` | Logging level: `default`, `verbose`, or `disabled` |
 | `-major` | `false` | Uses only the major providers from the built-in list. `-f` overrides it. |
 | `-primary` | `false` | Uses only the first address of each built-in provider, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |

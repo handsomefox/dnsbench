@@ -130,54 +130,24 @@ func parseFlags() *Config {
 		listenAddr string
 	)
 
-	flag.StringVar(&config.ResolversFile, "f", "", "File of resolvers that replaces the built-in list, one per line: name;ip, name;ip;tls-name (DoT), name;ip;https-url (DoH), or name;ip;quic://tls-name (DoQ)")
-	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout for one lookup attempt (e.g. 1500ms, 2s)")
-	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
-	flag.StringVar(&config.SitesFile, "s", "", "File of domains, one per line, that replaces the built-in list")
-	flag.StringVar(&outputType, "output", "default", "Report format: table, csv, or json. default is table")
-	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
+	flag.StringVar(&config.ResolversFile, "f", "", "Resolver file that replaces the built-in list, one name;ip per line, with an optional\nthird field: a TLS name for DoT, an https:// URL for DoH, or quic://name for DoQ")
+	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout for one lookup attempt, such as 1500ms or 2s")
+	flag.IntVar(&config.Repeats, "n", 10, "Measured lookups of each domain per resolver")
+	flag.StringVar(&config.SitesFile, "s", "", "Domain file that replaces the built-in list, one domain per line")
+	flag.StringVar(&outputType, "output", "table", "Report format: table, csv, or json")
+	flag.StringVar(&logType, "log", "default", "Logging: default, verbose, or disabled")
 	flag.IntVar(&config.Retries, "retries", 2, "Retries of a failed lookup attempt, after a short wait. 0 disables them")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum lookups in flight at once, across all resolvers")
-	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
-	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Benchmark only the first address of each built-in provider, such as Cloudflare-1")
-	flag.StringVar(&family, "family", "ipv4", "Address family of the built-in resolvers: ipv4, ipv6, or all")
-	flag.StringVar(&transport, "proto", "plain", "Transport of the built-in resolvers: plain, dot (DNS over TLS), doh (DNS over HTTPS), doq (DNS over QUIC), or all")
+	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Only the major providers: Cloudflare, Google, Quad9, NextDNS, and AdGuard")
+	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Only the first address of each provider, such as Cloudflare-1")
+	flag.StringVar(&family, "family", "ipv4", "Address family: ipv4, ipv6, or all")
+	flag.StringVar(&transport, "proto", "plain", "Transport: plain, dot, doh, doq, or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Unmeasured lookups of a domain right before a resolver's first measured lookup of it")
 	flag.BoolVar(&config.List, "list", false, "Print the resolvers a run would use, after the filters or from -f, and exit")
-	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
-	flag.StringVar(&listenAddr, "listen", "127.0.0.1:8080", "Address for the Web UI HTTP server (used with -ui). Use :8080 to accept connections from other machines")
+	flag.BoolVar(&serveUI, "ui", false, "Serve the dashboard instead of running a benchmark")
+	flag.StringVar(&listenAddr, "listen", "127.0.0.1:8080", "Dashboard address. :8080 accepts connections from other machines")
 
-	flag.Usage = func() {
-		//nolint:errcheck // best-effort help output
-		_, _ = fmt.Fprintf(flag.CommandLine.Output(), `DNS Benchmark Tool
-
-Test DNS resolvers against popular websites to measure latency and reliability.
-
-Usage:
-  dnsbench [options]
-
-Options:
-`)
-		flag.PrintDefaults()
-		//nolint:errcheck // best-effort help output
-		_, _ = fmt.Fprintf(flag.CommandLine.Output(), `
-Examples:
-  # Default benchmark
-  dnsbench
-
-  # Test with more repeats and a longer timeout
-  dnsbench -n 20 -t 5s
-
-  # Use custom resolver list and increase concurrency
-  dnsbench -f myresolvers.txt -c 10
-
-  # Benchmark with custom domain list
-  dnsbench -s mydomains.txt
-
-  # Compare plain DNS with DNS over TLS on IPv4 and IPv6
-  dnsbench -major -proto all -family all
-`)
-	}
+	flag.Usage = func() { printUsage(flag.CommandLine) }
 
 	flag.Parse()
 
@@ -278,4 +248,63 @@ func listServers(w io.Writer, config *Config) error {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.Addr, s.Transport(), endpoint) //nolint:errcheck // Flush reports write errors
 	}
 	return tw.Flush()
+}
+
+// usageGroups orders the flags in -h by what they control.
+var usageGroups = []struct {
+	title string
+	flags []string
+}{
+	{"Resolvers", []string{"major", "primary", "family", "proto", "f", "list"}},
+	{"Domains", []string{"s"}},
+	{"Measurement", []string{"n", "t", "c", "retries", "warmup"}},
+	{"Output", []string{"output", "log"}},
+	{"Dashboard", []string{"ui", "listen"}},
+}
+
+// printUsage writes -h: the ways to run dnsbench, the flags by group, and
+// examples. Each flag's line comes from its definition, so the text cannot
+// drift from the flags.
+func printUsage(fs *flag.FlagSet) {
+	var b strings.Builder
+	b.WriteString(`dnsbench measures how fast and how reliably DNS resolvers answer.
+
+Usage:
+  dnsbench [flags]          Run a benchmark and print a report
+  dnsbench -ui [flags]      Serve the dashboard and open it in a browser
+  dnsbench -list [flags]    Print the resolvers a run would use
+`)
+	for _, g := range usageGroups {
+		fmt.Fprintf(&b, "\n%s:\n", g.title)
+		for _, name := range g.flags {
+			f := fs.Lookup(name)
+			if f == nil {
+				continue
+			}
+			arg, usage := flag.UnquoteUsage(f)
+			head := "  -" + f.Name
+			if arg != "" {
+				head += " " + arg
+			}
+			// A usage with several lines keeps its column.
+			usage = strings.ReplaceAll(usage, "\n", "\n"+strings.Repeat(" ", 23))
+			fmt.Fprintf(&b, "%-22s %s", head, usage)
+			if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "0" && f.DefValue != "default" {
+				fmt.Fprintf(&b, " (default %s)", f.DefValue)
+			}
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString(`
+Flags take one dash or two: -n 5 and --n 5 are the same.
+
+Examples:
+  dnsbench -major -primary                   One address of each major provider
+  dnsbench -major -proto all -family all     Every transport and family they offer
+  dnsbench -f resolvers.txt -s domains.txt   Your own resolvers and domains
+  dnsbench -output csv > results.csv         Save a report
+  dnsbench -ui                               The dashboard at http://127.0.0.1:8080
+`)
+	//nolint:errcheck // best-effort help output
+	_, _ = io.WriteString(fs.Output(), b.String())
 }
