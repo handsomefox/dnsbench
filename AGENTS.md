@@ -1,7 +1,7 @@
 # Contributing to dnsbench
 
 Build commands are in the [Makefile](Makefile). Flag and report behavior is in
-the [CLI reference](docs/cli.md). The Go version is in [Build](README.md#build).
+the [CLI reference](docs/cli.md). The Go version is in [Build from source](README.md#build-from-source).
 
 ## Checks
 
