@@ -30,6 +30,7 @@ type runOptions struct {
 	Concurrency int    `json:"concurrency"`
 	Warmup      int    `json:"warmup"`
 	OnlyMajor   bool   `json:"onlyMajor"`
+	PrimaryOnly bool   `json:"primaryOnly"`
 	Family      string `json:"family"`
 	Transport   string `json:"transport"`
 }
@@ -52,16 +53,18 @@ type pageData struct {
 
 // builtinsKey must match the key that app.js builds in builtinSelection.
 func builtinsKey(f builtinFilter) string {
-	return fmt.Sprintf("%t/%s/%s", f.onlyMajor, f.family, f.transport)
+	return fmt.Sprintf("%t/%t/%s/%s", f.onlyMajor, f.primaryOnly, f.family, f.transport)
 }
 
 func builtinsByFilter() map[string][]DNSServer {
 	lists := make(map[string][]DNSServer)
 	for _, onlyMajor := range []bool{false, true} {
-		for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6, FamilyAll} {
-			for _, transport := range []Transport{TransportPlain, TransportDoT, TransportAll} {
-				f := builtinFilter{onlyMajor: onlyMajor, family: family, transport: transport}
-				lists[builtinsKey(f)] = builtinServers(f)
+		for _, primaryOnly := range []bool{false, true} {
+			for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6, FamilyAll} {
+				for _, transport := range []Transport{TransportPlain, TransportDoT, TransportAll} {
+					f := builtinFilter{onlyMajor: onlyMajor, primaryOnly: primaryOnly, family: family, transport: transport}
+					lists[builtinsKey(f)] = builtinServers(f)
+				}
 			}
 		}
 	}
@@ -157,6 +160,7 @@ func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
 			Concurrency: s.baseConfig.MaxConcurrency,
 			Warmup:      s.baseConfig.WarmupRuns,
 			OnlyMajor:   s.baseConfig.OnlyMajorResolvers,
+			PrimaryOnly: s.baseConfig.PrimaryOnly,
 			Family:      s.baseConfig.Family.String(),
 			Transport:   s.baseConfig.Transport.String(),
 		},
@@ -277,6 +281,7 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 	}
 	cfg.WarmupRuns = req.Options.Warmup
 	cfg.OnlyMajorResolvers = req.Options.OnlyMajor
+	cfg.PrimaryOnly = req.Options.PrimaryOnly
 	if req.Options.Family != "" {
 		family, err := parseFamily(req.Options.Family)
 		if err != nil {
@@ -316,9 +321,10 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 	}
 	if len(servers) == 0 {
 		servers = builtinServers(builtinFilter{
-			onlyMajor: cfg.OnlyMajorResolvers,
-			family:    cfg.Family,
-			transport: cfg.Transport,
+			onlyMajor:   cfg.OnlyMajorResolvers,
+			primaryOnly: cfg.PrimaryOnly,
+			family:      cfg.Family,
+			transport:   cfg.Transport,
 		})
 	}
 

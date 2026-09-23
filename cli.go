@@ -25,6 +25,7 @@ type Config struct {
 	LookupTimeout      time.Duration
 	Repeats            int
 	OnlyMajorResolvers bool
+	PrimaryOnly        bool
 	Family             AddrFamily
 	Transport          Transport
 	MaxConcurrency     int
@@ -165,9 +166,10 @@ func run(ctx context.Context, config *Config) error {
 
 	// Load DNS servers
 	servers, err := loadServers(config.ResolversFile, builtinFilter{
-		onlyMajor: config.OnlyMajorResolvers,
-		family:    config.Family,
-		transport: config.Transport,
+		onlyMajor:   config.OnlyMajorResolvers,
+		primaryOnly: config.PrimaryOnly,
+		family:      config.Family,
+		transport:   config.Transport,
 	})
 	if err != nil {
 		return fmt.Errorf("loading servers: %w", err)
@@ -208,6 +210,7 @@ func parseFlags() *Config {
 	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
+	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Benchmark only the first address of each built-in provider, such as Cloudflare-1")
 	flag.StringVar(&family, "family", "ipv4", "Address family of the built-in resolvers: ipv4, ipv6, or all")
 	flag.StringVar(&transport, "proto", "plain", "Transport of the built-in resolvers: plain, dot (DNS over TLS), or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Warmup lookups to run before each measured lookup")
@@ -366,9 +369,10 @@ func loadDomains(sitesFile string) ([]string, error) {
 
 // builtinFilter selects from the built-in resolvers.
 type builtinFilter struct {
-	onlyMajor bool
-	family    AddrFamily
-	transport Transport
+	onlyMajor   bool
+	primaryOnly bool // only the first address in each list
+	family      AddrFamily
+	transport   Transport
 }
 
 // builtinServers lists the built-in resolvers that match f, in the order
@@ -377,6 +381,9 @@ type builtinFilter struct {
 func builtinServers(f builtinFilter) []DNSServer {
 	var servers []DNSServer
 	add := func(p provider, addrs []string, v6, dot bool) {
+		if f.primaryOnly && len(addrs) > 1 {
+			addrs = addrs[:1]
+		}
 		for i, addr := range addrs {
 			name := p.name
 			s := DNSServer{Addr: addr}

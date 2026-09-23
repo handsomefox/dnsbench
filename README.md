@@ -50,6 +50,10 @@ To test every built-in resolver with more repeats and a longer timeout, run:
 ./bin/dnsbench -n 20 -t 5s
 ```
 
+Most providers list two addresses that perform alike. To halve a run, pass
+`-primary` to test only the first, such as `Cloudflare-1`. The dashboard has
+the same choice as **First address only**.
+
 The built-in resolver and domain lists are in [`data.go`](data.go). Every flag,
 its default, and every report field is in the [CLI reference](docs/cli.md).
 

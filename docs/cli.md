@@ -20,6 +20,7 @@ resolver and domain lists are in [`data.go`](../data.go).
 | `-output string` | `default` | Report format: `default`, `csv`, `table`, or `json` |
 | `-log string` | `default` | Logging level: `default`, `verbose`, or `disabled` |
 | `-major` | `false` | Uses only the major providers from the built-in list. `-f` overrides it. |
+| `-primary` | `false` | Uses only the first address of each built-in provider, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |
 | `-family string` | `ipv4` | Address family of the built-in resolvers: `ipv4`, `ipv6`, or `all`. `-f` overrides it. |
 | `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, or `all`. `-f` overrides it. |
 | `-warmup int` | `0` | Warmup lookups before each measured lookup. Zero or less disables warmup. |

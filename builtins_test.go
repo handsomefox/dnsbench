@@ -12,10 +12,11 @@ import (
 )
 
 func TestBuiltinServers(t *testing.T) {
-	var plain4, plain6, dot4, dot6, majorPlain4 int
+	var plain4, plain6, dot4, dot6, majorPlain4, primaryPlain4 int
 	for _, p := range providers {
 		if !p.dotOnly {
 			plain4 += len(p.ipv4)
+			primaryPlain4 += min(len(p.ipv4), 1)
 			plain6 += len(p.ipv6)
 			if p.major {
 				majorPlain4 += len(p.ipv4)
@@ -36,6 +37,7 @@ func TestBuiltinServers(t *testing.T) {
 		{name: "IPv6", filter: builtinFilter{family: FamilyIPv6}, want: plain6},
 		{name: "both families", filter: builtinFilter{family: FamilyAll}, want: plain4 + plain6},
 		{name: "major", filter: builtinFilter{onlyMajor: true}, want: majorPlain4},
+		{name: "first address", filter: builtinFilter{primaryOnly: true}, want: primaryPlain4},
 		{name: "DoT", filter: builtinFilter{transport: TransportDoT}, want: dot4},
 		{name: "everything", filter: builtinFilter{family: FamilyAll, transport: TransportAll}, want: plain4 + plain6 + dot4 + dot6},
 	}
@@ -68,6 +70,9 @@ func TestBuiltinServers(t *testing.T) {
 				}
 				if tt.filter.transport == TransportPlain && s.TLSName != "" || tt.filter.transport == TransportDoT && s.TLSName == "" {
 					t.Errorf("%s does not belong to transport %s", s.Name, tt.filter.transport)
+				}
+				if tt.filter.primaryOnly && !strings.HasSuffix(s.Name, "-1") {
+					t.Errorf("%s is not a first address", s.Name)
 				}
 			}
 		})

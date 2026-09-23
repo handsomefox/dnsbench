@@ -113,7 +113,7 @@ function useCustomResolvers() {
 // builtinSelection picks the built-in list for the current filters. The
 // key must match builtinsKey in server.go.
 function builtinSelection() {
-	const key = `${$("only-major").checked}/${form.elements.family.value}/${form.elements.transport.value}`
+	const key = `${$("only-major").checked}/${$("primary-only").checked}/${form.elements.family.value}/${form.elements.transport.value}`
 	return builtins[key] ?? []
 }
 
@@ -691,6 +691,7 @@ async function startRun(event) {
 		concurrency: Number($("concurrency").value),
 		warmup: Number($("warmup").value),
 		onlyMajor: $("only-major").checked,
+		primaryOnly: $("primary-only").checked,
 		family: form.elements.family.value,
 		transport: form.elements.transport.value,
 	}

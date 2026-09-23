@@ -63,6 +63,7 @@
 							<label><input type="radio" name="transport" value="all" {{if eq .Options.Transport "all"}}checked{{end}}><span>Both</span></label>
 						</div>
 						<label class="check"><input type="checkbox" id="only-major" {{if .Options.OnlyMajor}}checked{{end}}> Major providers only</label>
+						<label class="check" title="Most providers list two addresses that perform alike. Test only the first, such as Cloudflare-1, to halve the run."><input type="checkbox" id="primary-only" {{if .Options.PrimaryOnly}}checked{{end}}> First address only</label>
 					</div>
 					<div class="picker-tools">
 						<button type="button" class="link" id="select-all">Select all</button>
