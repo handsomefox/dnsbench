@@ -76,6 +76,9 @@ func TestWrite_JSON(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
+	if strings.Contains(out.String(), "fastest_resolver") || strings.Contains(out.String(), "slowest_resolver") {
+		t.Error("summary still has fastest_resolver or slowest_resolver")
+	}
 	if len(got.Results) != 2 || len(got.Failures) != 1 || got.Results[0].Server.Name != "fast" {
 		t.Errorf("results = %+v, failures = %+v", got.Results, got.Failures)
 	}

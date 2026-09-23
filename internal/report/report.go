@@ -188,22 +188,14 @@ func writeTable(w io.Writer, valid, failed []bench.Result) error {
 
 func writeJSON(w io.Writer, valid, failed []bench.Result) error {
 	type Summary struct {
-		TotalResolvers   int           `json:"total_resolvers"`
-		SuccessResolvers int           `json:"success_resolvers"`
-		FailedResolvers  int           `json:"failed_resolvers"`
-		OverallSuccess   float64       `json:"overall_success_rate"`
-		Fastest          *bench.Result `json:"fastest_resolver,omitempty"`
-		Slowest          *bench.Result `json:"slowest_resolver,omitempty"`
+		TotalResolvers   int     `json:"total_resolvers"`
+		SuccessResolvers int     `json:"success_resolvers"`
+		FailedResolvers  int     `json:"failed_resolvers"`
+		OverallSuccess   float64 `json:"overall_success_rate"`
 	}
 
 	all := append([]bench.Result{}, valid...)
 	all = append(all, failed...)
-
-	var fastest, slowest *bench.Result
-	if len(valid) > 0 {
-		fastest = &valid[0]
-		slowest = &valid[len(valid)-1]
-	}
 
 	totalQueries := 0
 	totalSuccess := 0
@@ -221,8 +213,6 @@ func writeJSON(w io.Writer, valid, failed []bench.Result) error {
 		SuccessResolvers: len(valid),
 		FailedResolvers:  len(failed),
 		OverallSuccess:   overallSuccess * 100,
-		Fastest:          fastest,
-		Slowest:          slowest,
 	}
 
 	// Encode an empty group as [] rather than null.

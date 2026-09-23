@@ -249,15 +249,10 @@ The `summary` object has these fields:
 | `success_resolvers` | Resolvers with at least one successful lookup |
 | `failed_resolvers` | Resolvers with no successful lookup |
 | `overall_success_rate` | Success percentage from `0` to `100`, counted across `results` only |
-| `fastest_resolver` | The first result object in the sorted `results` group |
-| `slowest_resolver` | The last result object in the sorted `results` group |
 
-`fastest_resolver` and `slowest_resolver` follow the sort order, which puts
-success rate ahead of latency. A resolver that answered every lookup slowly
-therefore outranks one that answered most of them fast, and neither field is a
-reliable answer to "which resolver has the lowest median latency". Read
-`results` yourself if that is the question. The encoder drops both fields when
-no valid result exists. An empty group encodes as `[]`.
+`results` follows the sort order above, so its first entry has the highest
+success rate, and the lowest median among those. An empty group encodes as
+`[]`.
 
 The report carries no per-domain statistics.
 
