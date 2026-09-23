@@ -54,6 +54,13 @@ Most providers list two addresses that perform alike. To halve a run, pass
 `-primary` to test only the first, such as `Cloudflare-1`. The dashboard has
 the same choice as **First address only**.
 
+To see which resolvers a set of flags selects without running anything, add
+`-list`:
+
+```bash
+./bin/dnsbench -major -proto doq -list
+```
+
 The built-in resolver and domain lists are in
 [`internal/catalog/data.go`](internal/catalog/data.go). Every flag,
 its default, and every report field is in the [CLI reference](docs/cli.md).

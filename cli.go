@@ -5,12 +5,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
 	"github.com/handsomefox/dnsbench/internal/bench"
@@ -39,6 +41,9 @@ type Config struct {
 	LogType    LogType
 
 	WarmupRuns int
+
+	// List prints the resolvers a run would use and exits.
+	List bool
 
 	// Web UI
 	ServeUI    bool
@@ -138,6 +143,7 @@ func parseFlags() *Config {
 	flag.StringVar(&family, "family", "ipv4", "Address family of the built-in resolvers: ipv4, ipv6, or all")
 	flag.StringVar(&transport, "proto", "plain", "Transport of the built-in resolvers: plain, dot (DNS over TLS), doh (DNS over HTTPS), doq (DNS over QUIC), or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Unmeasured lookups of a domain right before a resolver's first measured lookup of it")
+	flag.BoolVar(&config.List, "list", false, "Print the resolvers a run would use, after the filters or from -f, and exit")
 	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
 	flag.StringVar(&listenAddr, "listen", "127.0.0.1:8080", "Address for the Web UI HTTP server (used with -ui). Use :8080 to accept connections from other machines")
 
@@ -256,4 +262,20 @@ func (c *Config) filter() catalog.Filter {
 		Family:    c.Family,
 		Transport: c.Transport,
 	}
+}
+
+// listServers prints the resolvers that a run with config would use, one
+// per line: name, address, transport, and the TLS name or DoH URL.
+func listServers(w io.Writer, config *Config) error {
+	servers, err := catalog.LoadServers(config.ResolversFile, config.filter())
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "Resolver\tAddress\tTransport\tEndpoint") //nolint:errcheck // Flush reports write errors
+	for _, s := range servers {
+		endpoint := s.TLSName + s.DoHURL + s.DoQName                                 // at most one is set
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", s.Name, s.Addr, s.Transport(), endpoint) //nolint:errcheck // Flush reports write errors
+	}
+	return tw.Flush()
 }

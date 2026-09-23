@@ -31,6 +31,14 @@ func main() {
 		return
 	}
 
+	if config.List {
+		if err := listServers(os.Stdout, config); err != nil {
+			slog.ErrorContext(ctx, "Listing resolvers failed", slog.Any("err", err))
+			os.Exit(1)
+		}
+		return
+	}
+
 	slog.LogAttrs(ctx, slog.LevelDebug, "Starting", slog.Any("config", fmt.Sprintf("%#v", config)))
 	if err := run(ctx, config); err != nil {
 		if errors.Is(err, errInterrupted) {
