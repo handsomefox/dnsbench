@@ -34,6 +34,7 @@ type Config struct {
 	Family             catalog.Family
 	Transport          catalog.Transport
 	Kind               string
+	Providers          []string
 	MaxConcurrency     int
 	Retries            int
 
@@ -127,6 +128,7 @@ func parseFlags() *Config {
 		family     string
 		transport  string
 		kind       string
+		providers  string
 		warmupRuns int
 		serveUI    bool
 		listenAddr string
@@ -144,6 +146,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Only the first address of each service, such as Cloudflare-1")
 	flag.StringVar(&family, "family", "ipv4", "Address family: ipv4, ipv6, or all")
 	flag.StringVar(&transport, "proto", "plain", "Transport: plain, dot, doh, doq, or all")
+	flag.StringVar(&providers, "provider", "", "Only the services of these companies, separated by commas, such as cloudflare,google,quad9")
 	flag.StringVar(&kind, "kind", "all", "Kind of resolver: global, filtering (malware, ads, or family filters), privacy, regional, or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Unmeasured lookups of a domain right before a resolver's first measured lookup of it")
 	flag.BoolVar(&config.List, "list", false, "Print the resolvers a run would use, after the filters or from -f, and exit")
@@ -203,6 +206,12 @@ func parseFlags() *Config {
 	}
 	config.Kind = k
 
+	config.Providers, err = catalog.ParseProviders(providers)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	config.WarmupRuns = warmupRuns
 	config.ServeUI = serveUI
 	config.ListenAddr = listenAddr
@@ -242,6 +251,7 @@ func (c *Config) filter() catalog.Filter {
 		Family:    c.Family,
 		Transport: c.Transport,
 		Kind:      c.Kind,
+		Providers: c.Providers,
 	}
 }
 
@@ -266,7 +276,7 @@ var usageGroups = []struct {
 	title string
 	flags []string
 }{
-	{"Resolvers", []string{"major", "primary", "family", "proto", "kind", "f", "list"}},
+	{"Resolvers", []string{"provider", "major", "primary", "family", "proto", "kind", "f", "list"}},
 	{"Domains", []string{"s"}},
 	{"Measurement", []string{"n", "t", "c", "retries", "warmup"}},
 	{"Output", []string{"output", "log"}},
@@ -311,6 +321,7 @@ Flags take one dash or two: -n 5 and --n 5 are the same.
 
 Examples:
   dnsbench -major -primary                   One address of each major provider
+  dnsbench -provider cloudflare,quad9        Cloudflare and Quad9, filtering too
   dnsbench -major -proto all -family all     Every transport and family they offer
   dnsbench -f resolvers.txt -s domains.txt   Your own resolvers and domains
   dnsbench -output csv > results.csv         Save a report

@@ -5,6 +5,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -283,5 +284,32 @@ func TestServiceProviders(t *testing.T) {
 		if s.provider == "" || s.name != s.provider && !strings.HasPrefix(s.name, s.provider+"-") {
 			t.Errorf("service %q has provider %q", s.name, s.provider)
 		}
+	}
+}
+
+func TestParseProviders(t *testing.T) {
+	got, err := ParseProviders(" cloudflare, QUAD9 ,google,cloudflare,")
+	if err != nil || !slices.Equal(got, []string{"Cloudflare", "Quad9", "Google"}) {
+		t.Errorf("ParseProviders() = %q, %v", got, err)
+	}
+	if got, err := ParseProviders(""); err != nil || got != nil {
+		t.Errorf(`ParseProviders("") = %q, %v, want no providers`, got, err)
+	}
+	if _, err := ParseProviders("cloudflare-family"); err == nil || !strings.Contains(err.Error(), "Cloudflare, Google") {
+		t.Errorf("ParseProviders(cloudflare-family) error = %v, want one that lists the providers", err)
+	}
+}
+
+// -provider keeps every service of the chosen companies, filtering ones
+// included, and nothing else.
+func TestFilterProviders(t *testing.T) {
+	got := Servers(Filter{Primary: true, Providers: []string{"Cloudflare", "Quad9"}})
+	names := make([]string, 0, len(got))
+	for _, s := range got {
+		names = append(names, s.Name)
+	}
+	want := []string{"Cloudflare-1", "Quad9-Unfiltered-1", "Quad9-1", "Quad9-ECS-1", "Cloudflare-Security-1", "Cloudflare-Family-1"}
+	if !slices.Equal(names, want) {
+		t.Errorf("Servers() = %q, want %q", names, want)
 	}
 }

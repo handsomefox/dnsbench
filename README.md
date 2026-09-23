@@ -103,6 +103,13 @@ plain DNS, run:
 ./bin/dnsbench -kind filtering -primary
 ```
 
+To compare a few companies with all their services, filtering or not, name
+them with `-provider`:
+
+```bash
+./bin/dnsbench -provider cloudflare,google,quad9 -primary
+```
+
 A filter answers a name it blocks with no address or with an address such as
 `0.0.0.0`. Either way the lookup counts as answered. The reports count the
 first kind as `blocked`, so a family filter that blocks `reddit.com` shows it

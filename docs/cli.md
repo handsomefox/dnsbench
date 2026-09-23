@@ -35,6 +35,7 @@ they control, with their defaults.
 | `-c int` | `max(runtime.NumCPU()/2, 2)` | Maximum lookups in flight at once, across all resolvers. Minimum `1`. |
 | `-output string` | `table` | Report format: `table`, `csv`, or `json`. `default` still means `table`. |
 | `-log string` | `default` | Logging level: `default`, `verbose`, or `disabled` |
+| `-provider string` | Empty | Uses only the services of these companies, separated by commas, such as `cloudflare,google,quad9`. Includes their filtering services. `-f` overrides it. With `-ui`, the dashboard starts with only these companies selected. |
 | `-major` | `false` | Uses only the major providers from the built-in list. `-f` overrides it. |
 | `-primary` | `false` | Uses only the first address of each built-in service, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |
 | `-family string` | `ipv4` | Address family of the built-in resolvers: `ipv4`, `ipv6`, or `all`. `-f` overrides it. |
@@ -46,9 +47,9 @@ they control, with their defaults.
 | `-listen string` | `127.0.0.1:8080` | Web UI listen address. The default accepts connections from this machine only. `:8080` accepts them on every interface. |
 
 The flag parser takes one or two leading hyphens. The values of `-output`,
-`-log`, `-family`, `-proto`, and `-kind` are case-insensitive. dnsbench exits
-`1` with a message on standard error when a value is out of range or a name is
-unknown.
+`-log`, `-family`, `-proto`, `-kind`, and `-provider` are case-insensitive.
+dnsbench exits `1` with a message on standard error when a value is out of range
+or a name is unknown.
 
 ## While a run goes
 
@@ -186,7 +187,7 @@ line stops the benchmark with an error naming the line number. A file with no
 valid resolvers is an error too.
 
 A resolver file replaces the built-in list and runs as written. `-major`,
-`-primary`, `-family`, `-proto`, and `-kind` do not filter it.
+`-primary`, `-family`, `-proto`, `-kind`, and `-provider` do not filter it.
 
 ### Domain file
 

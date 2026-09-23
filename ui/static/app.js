@@ -109,7 +109,11 @@ function defaultSetup() {
 		category: new Set(pick(serverDefaults.kind, ALL.category)),
 		major: Boolean(serverDefaults.onlyMajor),
 		primary: Boolean(serverDefaults.primaryOnly),
-		excluded: new Set(), // serverKeys the user unchecked
+		// serverKeys the user unchecked. dnsbench -ui -provider starts with
+		// every other provider's resolvers unchecked.
+		excluded: new Set(
+			serverDefaults.providers?.length ? catalog.filter((e) => !serverDefaults.providers.includes(e.provider)).map(serverKey) : [],
+		),
 		open: new Set(), // providers expanded in the picker
 		search: "",
 	}

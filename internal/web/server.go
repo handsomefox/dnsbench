@@ -28,15 +28,16 @@ import (
 var pageTemplate = template.Must(template.ParseFS(ui.FS, "index.html.tmpl"))
 
 type runOptions struct {
-	Repeats     int    `json:"repeats"`
-	TimeoutMs   int    `json:"timeoutMs"`
-	Concurrency int    `json:"concurrency"`
-	Warmup      int    `json:"warmup"`
-	OnlyMajor   bool   `json:"onlyMajor"`
-	PrimaryOnly bool   `json:"primaryOnly"`
-	Family      string `json:"family"`
-	Transport   string `json:"transport"`
-	Kind        string `json:"kind"`
+	Repeats     int      `json:"repeats"`
+	TimeoutMs   int      `json:"timeoutMs"`
+	Concurrency int      `json:"concurrency"`
+	Warmup      int      `json:"warmup"`
+	OnlyMajor   bool     `json:"onlyMajor"`
+	PrimaryOnly bool     `json:"primaryOnly"`
+	Family      string   `json:"family"`
+	Transport   string   `json:"transport"`
+	Kind        string   `json:"kind"`
+	Providers   []string `json:"providers,omitempty"`
 }
 
 type runRequest struct {
@@ -158,6 +159,7 @@ func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
 			Family:      s.baseConfig.Filter.Family.String(),
 			Transport:   s.baseConfig.Filter.Transport.String(),
 			Kind:        s.baseConfig.Filter.Kind,
+			Providers:   s.baseConfig.Filter.Providers,
 		},
 		DefaultDomains: catalog.DefaultDomains,
 		Builtins:       catalog.All(),

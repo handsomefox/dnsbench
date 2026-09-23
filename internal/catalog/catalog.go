@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/handsomefox/dnsbench/internal/dnsclient"
@@ -149,7 +150,42 @@ type Filter struct {
 	Primary   bool // only the first address in each list
 	Family    Family
 	Transport Transport
-	Kind      string // a category such as Filtering, or empty for all
+	Kind      string   // a category such as Filtering, or empty for all
+	Providers []string // companies such as Cloudflare, or empty for all
+}
+
+// Providers lists the companies that run the built-in services, in the
+// order of the services table.
+func Providers() []string {
+	var names []string
+	for _, s := range services {
+		if !slices.Contains(names, s.provider) {
+			names = append(names, s.provider)
+		}
+	}
+	return names
+}
+
+// ParseProviders parses a -provider value: company names separated by
+// commas, in any case, such as "cloudflare,google". It returns their
+// canonical names, or an error that lists the valid ones.
+func ParseProviders(s string) ([]string, error) {
+	var out []string
+	known := Providers()
+	for field := range strings.SplitSeq(s, ",") {
+		field = strings.TrimSpace(field)
+		if field == "" {
+			continue
+		}
+		i := slices.IndexFunc(known, func(k string) bool { return strings.EqualFold(k, field) })
+		if i < 0 {
+			return nil, fmt.Errorf("invalid provider %q: want one or more of %s", field, strings.Join(known, ", "))
+		}
+		if !slices.Contains(out, known[i]) {
+			out = append(out, known[i])
+		}
+	}
+	return out, nil
 }
 
 // Kinds are the resolver categories, in the order the dashboard shows them.
@@ -247,7 +283,8 @@ func (f Filter) Matches(e *Entry) bool {
 		(!f.Primary || e.Primary) &&
 		(f.Family == FamilyAll || f.Family.String() == e.Family) &&
 		(f.Transport == TransportAll || f.Transport.String() == e.Transport) &&
-		(f.Kind == "" || f.Kind == e.Category)
+		(f.Kind == "" || f.Kind == e.Category) &&
+		(len(f.Providers) == 0 || slices.Contains(f.Providers, e.Provider))
 }
 
 // Servers lists the built-in resolvers that match f, in catalog order.
