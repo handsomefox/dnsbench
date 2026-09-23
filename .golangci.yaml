@@ -41,6 +41,15 @@ linters:
       # See https://github.com/go-critic/go-critic#usage -> section "Tags".
       # Default: []
       enabled-tags: [diagnostic, style, performance, opinionated]
+      settings:
+        # BenchmarkResult is 128 bytes. The loops that copy it run over a few
+        # dozen resolvers once per report, so the copies cost nothing.
+        rangeValCopy:
+          sizeThreshold: 256
+        # DNSServer is five strings, 80 bytes. Passing it by value keeps the
+        # reporter interface simple and costs nothing at this call rate.
+        hugeParam:
+          sizeThreshold: 128
 
     gosec:
       excludes:

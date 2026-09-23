@@ -61,6 +61,7 @@
 							<label><input type="radio" name="transport" value="plain" {{if eq .Options.Transport "plain"}}checked{{end}}><span>Plain</span></label>
 							<label><input type="radio" name="transport" value="dot" {{if eq .Options.Transport "dot"}}checked{{end}}><span>DoT</span></label>
 							<label><input type="radio" name="transport" value="doh" {{if eq .Options.Transport "doh"}}checked{{end}}><span>DoH</span></label>
+							<label><input type="radio" name="transport" value="doq" {{if eq .Options.Transport "doq"}}checked{{end}}><span>DoQ</span></label>
 							<label><input type="radio" name="transport" value="all" {{if eq .Options.Transport "all"}}checked{{end}}><span>All</span></label>
 						</div>
 						<label class="check"><input type="checkbox" id="only-major" {{if .Options.OnlyMajor}}checked{{end}}> Major providers only</label>
@@ -74,8 +75,8 @@
 				</div>
 
 				<div id="custom-options" hidden>
-					<textarea id="custom-resolvers" rows="7" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com&#10;Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query&#10;Router;fe80::1%eth0"></textarea>
-					<p class="hint">One resolver per line: <code>name;ip</code> for plain DNS, <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on its certificate, or <code>name;ip;https-url</code> for DNS over HTTPS. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
+					<textarea id="custom-resolvers" rows="7" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com&#10;Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query&#10;AdGuard-DoQ;94.140.14.14;quic://dns.adguard-dns.com&#10;Router;fe80::1%eth0"></textarea>
+					<p class="hint">One resolver per line: <code>name;ip</code> for plain DNS, <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on its certificate, <code>name;ip;https-url</code> for DNS over HTTPS, or <code>name;ip;quic://tls-name</code> for DNS over QUIC. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
 				</div>
 			</section>
 

@@ -61,6 +61,20 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 			wantErr: "pick one",
 		},
 		{
+			name: "custom DoQ resolver",
+			req:  runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoQName: "dns.example"}}},
+		},
+		{
+			name:    "both DoH and DoQ",
+			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoHURL: "https://dns.example/q", DoQName: "dns.example"}}},
+			wantErr: "pick one",
+		},
+		{
+			name:    "bad DoQ name",
+			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoQName: "quic://dns.example"}}},
+			wantErr: "invalid DoQ name",
+		},
+		{
 			name:    "unknown transport",
 			req:     runRequest{Options: runOptions{Transport: "http"}},
 			wantErr: "invalid transport",
@@ -198,7 +212,7 @@ func TestUIServer_BuiltinsDataIsland(t *testing.T) {
 	for _, major := range []string{"false", "true"} {
 		for _, primary := range []string{"false", "true"} {
 			for _, family := range []string{"ipv4", "ipv6", "all"} {
-				for _, transport := range []string{"plain", "dot", "doh", "all"} {
+				for _, transport := range []string{"plain", "dot", "doh", "doq", "all"} {
 					key := major + "/" + primary + "/" + family + "/" + transport
 					want++
 					if len(got[key]) == 0 {

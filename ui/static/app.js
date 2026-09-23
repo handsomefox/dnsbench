@@ -43,13 +43,13 @@ function el(tag, props = {}, ...children) {
 }
 
 function transportOf(server) {
+	if (server.doqName) return "doq"
 	if (server.dohURL) return "doh"
 	if (server.tlsName) return "dot"
 	return "plain"
 }
 
-// serverKey tells results apart. Plain DNS, DoT, and DoH can share an
-// address.
+// serverKey tells results apart. Every transport can share an address.
 function serverKey(server) {
 	return `${transportOf(server)} ${server.addr}`
 }
@@ -58,10 +58,12 @@ function serverTags(server) {
 	const tags = [server.addr.includes(":") ? "IPv6" : "IPv4"]
 	if (server.tlsName) tags.push("DoT")
 	if (server.dohURL) tags.push("DoH")
+	if (server.doqName) tags.push("DoQ")
 	return tags
 }
 
 function transportLabel(server) {
+	if (server.doqName) return `DoQ with certificate name ${server.doqName}`
 	if (server.dohURL) return `DoH at ${server.dohURL}`
 	if (server.tlsName) return `DoT with certificate name ${server.tlsName}`
 	return "plain DNS"
@@ -108,7 +110,7 @@ function parseLines(text) {
 }
 
 // parseResolvers reads the lines of a -f file: "name;ip", "name;ip;tls-name",
-// or "name;ip;https-url". A line with no ";" is an address. The server
+// "name;ip;https-url", or "name;ip;quic://tls-name". A line with no ";" is an address. The server
 // validates every field and names unnamed resolvers.
 function parseResolvers(text) {
 	return parseLines(text).map((line) => {
@@ -116,6 +118,7 @@ function parseResolvers(text) {
 		if (parts.length === 1) return { name: "", addr: parts[0] }
 		const server = { name: parts[0], addr: parts[1] }
 		if (parts[2]?.startsWith("https://")) server.dohURL = parts[2]
+		else if (parts[2]?.startsWith("quic://")) server.doqName = parts[2].slice("quic://".length)
 		else if (parts[2]) server.tlsName = parts[2]
 		return server
 	})
@@ -499,7 +502,7 @@ function renderDetail(entry, node) {
 		`;; lookups ${s.total}   answered ${s.count}   failed ${s.errors}`,
 		`;; min ${formatMs(s.min)}   mean ${formatMs(s.mean)}   max ${formatMs(s.max)}`,
 	]
-	if (entry.server.tlsName || entry.server.dohURL) lines.push(`;; ${transportLabel(entry.server)}`)
+	if (transportOf(entry.server) !== "plain") lines.push(`;; ${transportLabel(entry.server)}`)
 
 	const slow = [...entry.domains.entries()]
 		.map(([domain, values]) => {
@@ -758,6 +761,7 @@ function exportRows() {
 		addr: e.server.addr,
 		tlsName: e.server.tlsName ?? "",
 		dohURL: e.server.dohURL ?? "",
+		doqName: e.server.doqName ?? "",
 		transport: transportOf(e.server),
 		successPct: Number(successRate(e.stats).toFixed(2)),
 		answered: e.stats.count,

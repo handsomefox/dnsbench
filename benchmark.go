@@ -16,13 +16,16 @@ import (
 // DNSServer represents a resolver to be benchmarked. A resolver with a
 // TLSName is queried with DNS over TLS on port 853, and TLSName is the name
 // its certificate must match. A resolver with a DoHURL is queried with DNS
-// over HTTPS at that URL, through Addr on port 443. Without either it gets
-// plain DNS on port 53. At most one of TLSName and DoHURL is set.
+// over HTTPS at that URL, through Addr on port 443. A resolver with a
+// DoQName is queried with DNS over QUIC on UDP port 853, and DoQName is the
+// name its certificate must match. Without any of them it gets plain DNS on
+// port 53. At most one of TLSName, DoHURL, and DoQName is set.
 type DNSServer struct {
 	Name    string `json:"name"`
 	Addr    string `json:"addr"`
 	TLSName string `json:"tlsName,omitempty"`
 	DoHURL  string `json:"dohURL,omitempty"`
+	DoQName string `json:"doqName,omitempty"`
 }
 
 // BenchmarkResult contains the results for a single resolver
@@ -152,6 +155,7 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 
 	total := len(domains) * config.Repeats
 	resolver := NewResolver(server, config.MaxConcurrency)
+	defer resolver.Close()
 
 	// Without a route or with a bad certificate, every attempt fails and the
 	// retries only add backoff. Fail every planned lookup now, so the

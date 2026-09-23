@@ -4,8 +4,9 @@ dnsbench benchmarks one resolver at a time. For each resolver it runs the
 hostname lookups concurrently, up to `-c` at once. A plain DNS resolver gets its
 queries over UDP port 53, and over TCP when a UDP answer arrives truncated. A
 DNS over TLS (DoT) resolver gets them over TLS on TCP port 853. A DNS over
-HTTPS (DoH) resolver gets them as HTTPS POST requests on TCP port 443. The
-built-in resolver and domain lists are in [`data.go`](../data.go).
+HTTPS (DoH) resolver gets them as HTTPS POST requests on TCP port 443. A DNS
+over QUIC (DoQ) resolver gets them over QUIC on UDP port 853. The built-in
+resolver and domain lists are in [`data.go`](../data.go).
 
 ## Flags
 
@@ -23,7 +24,7 @@ built-in resolver and domain lists are in [`data.go`](../data.go).
 | `-major` | `false` | Uses only the major providers from the built-in list. `-f` overrides it. |
 | `-primary` | `false` | Uses only the first address of each built-in provider, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |
 | `-family string` | `ipv4` | Address family of the built-in resolvers: `ipv4`, `ipv6`, or `all`. `-f` overrides it. |
-| `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, `doh`, or `all`. `-f` overrides it. |
+| `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, `doh`, `doq`, or `all`. `-f` overrides it. |
 | `-warmup int` | `0` | Warmup lookups before each measured lookup. Zero or less disables warmup. |
 | `-ui` | `false` | Serves the Web UI instead of running a CLI benchmark |
 | `-listen string` | `:8080` | Web UI listen address. The default accepts connections on every interface. |
@@ -47,9 +48,12 @@ can fix:
 - It connects a UDP socket to the resolver. That sends nothing, but it fails at
   once when the host has no route to the address, as with an IPv6 resolver on
   an IPv4-only host.
-- For a DoT or DoH resolver, it makes one TLS handshake and checks the
-  certificate against the TLS name or the host in the DoH URL. Other handshake failures, such as a timeout, are left
-  to the lookups and their retries.
+- For a DoT, DoH, or DoQ resolver, it makes one TLS handshake and checks the
+  certificate against the TLS name or the host in the DoH URL. For DoQ, a TLS
+  alert from the server during the handshake counts too, since some servers
+  send one instead of a certificate for a name they do not serve. Other
+  handshake failures, such as a timeout, are left to the lookups and their
+  retries.
 
 If either check fails, dnsbench logs a warning and counts every planned lookup
 against that resolver as failed, without retries.
@@ -89,6 +93,24 @@ connection. That is the opposite of DoT, which pays for both handshakes on
 every lookup, so a DoH resolver can look faster than the DoT service of the
 same provider for that reason alone.
 
+### DNS over QUIC
+
+dnsbench follows RFC 9250. It opens one QUIC connection to the resolver on UDP
+port 853 with the ALPN protocol `doq`, and sends each query on a new stream of
+that connection with a two-byte length prefix. The DNS message ID on the wire
+is `0`, as the RFC requires.
+
+Like DoH, DoQ keeps its connection for the whole resolver, so after the first
+lookups it measures a warm connection. QUIC's handshake takes one round trip,
+so a cold DoQ lookup costs about two round trips, where a cold DoT lookup
+costs three. Few providers serve DoQ: of the built-in list, AdGuard, NextDNS,
+Quad9, and AliDNS do.
+
+Concurrent lookups share that one connection, and some servers answer them
+more slowly than one at a time. In a test on 2026-09-23, AdGuard's mean DoQ
+latency went from 41 ms at `-c 1` to 76 ms at `-c 8`, while NextDNS went from
+9 ms to 13 ms. If DoQ numbers look high, run the same resolvers with `-c 1`.
+
 ## Input files
 
 Both formats trim whitespace, then skip blank lines and lines that start with
@@ -96,14 +118,16 @@ Both formats trim whitespace, then skip blank lines and lines that start with
 
 ### Resolver file
 
-Each line is `name;ip` for plain DNS, `name;ip;tls-name` for DoT, or
-`name;ip;https-url` for DoH. A third field that starts with `https://` is a DoH
-URL. Any other third field is a TLS name:
+Each line is `name;ip` for plain DNS, `name;ip;tls-name` for DoT,
+`name;ip;https-url` for DoH, or `name;ip;quic://tls-name` for DoQ. A third
+field that starts with `https://` is a DoH URL. One that starts with `quic://`
+is a DoQ TLS name. Any other third field is a DoT TLS name:
 
 ```text
 Cloudflare;1.1.1.1
 Cloudflare-DoT;1.1.1.1;cloudflare-dns.com
 Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query
+AdGuard-DoQ;94.140.14.14;quic://dns.adguard-dns.com
 Router;fe80::1%eth0
 ```
 
@@ -146,6 +170,7 @@ Each entry in `results` and `failures` has these fields:
 | `server.addr` | Resolver IPv4 or IPv6 address |
 | `server.tlsName` | Certificate name of a DoT resolver. Absent otherwise. |
 | `server.dohURL` | URL of a DoH resolver. Absent otherwise. |
+| `server.doqName` | Certificate name of a DoQ resolver. Absent otherwise. |
 | `stats.min` | Fastest successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.max` | Slowest successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.mean` | Mean successful lookup, in milliseconds. `null` when no lookup succeeded. |

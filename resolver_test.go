@@ -184,15 +184,32 @@ func serveDNSStream(ln net.Listener, queries *atomic.Int32) {
 // certificate, and a count of the queries the server answered.
 func startFakeDoT(t *testing.T) (hostPort string, roots *x509.CertPool, queries *atomic.Int32) {
 	t.Helper()
+	cert, roots := selfSignedCert(t, "dns.test")
 
+	var lc net.ListenConfig
+	tcp, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot listen on loopback: %v", err)
+	}
+	ln := tls.NewListener(tcp, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
+	t.Cleanup(func() { closeQuietly(ln) })
+
+	queries = &atomic.Int32{}
+	go serveDNSStream(ln, queries)
+	return tcp.Addr().String(), roots, queries
+}
+
+// selfSignedCert returns a certificate for name and a pool that trusts it.
+func selfSignedCert(t *testing.T, name string) (tls.Certificate, *x509.CertPool) {
+	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "dns.test"},
-		DNSNames:     []string{"dns.test"},
+		Subject:      pkix.Name{CommonName: name},
+		DNSNames:     []string{name},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
@@ -206,23 +223,9 @@ func startFakeDoT(t *testing.T) (hostPort string, roots *x509.CertPool, queries 
 	if err != nil {
 		t.Fatal(err)
 	}
-	roots = x509.NewCertPool()
+	roots := x509.NewCertPool()
 	roots.AddCert(cert)
-
-	var lc net.ListenConfig
-	tcp, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Skipf("cannot listen on loopback: %v", err)
-	}
-	ln := tls.NewListener(tcp, &tls.Config{
-		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
-		MinVersion:   tls.VersionTLS12,
-	})
-	t.Cleanup(func() { closeQuietly(ln) })
-
-	queries = &atomic.Int32{}
-	go serveDNSStream(ln, queries)
-	return tcp.Addr().String(), roots, queries
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, roots
 }
 
 func TestResolver_DNSOverTLS(t *testing.T) {
@@ -368,6 +371,9 @@ func TestNewResolver_Ports(t *testing.T) {
 	}
 	if got := NewResolver(DNSServer{Addr: "2001:db8::1", DoHURL: "https://dns.test/q"}, 1).hostPort; got != "[2001:db8::1]:443" {
 		t.Errorf("DoH resolver dials %s, want [2001:db8::1]:443", got)
+	}
+	if got := NewResolver(DNSServer{Addr: "192.0.2.1", DoQName: "dns.test"}, 1).hostPort; got != "192.0.2.1:853" {
+		t.Errorf("DoQ resolver dials %s, want 192.0.2.1:853", got)
 	}
 }
 

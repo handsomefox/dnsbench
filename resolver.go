@@ -27,6 +27,8 @@ type Resolver struct {
 	netResolver *net.Resolver
 	dialer      *net.Dialer
 	tlsDialer   *tls.Dialer // nil for plain DNS
+	doq         *doqClient  // nil unless DNS over QUIC
+	close       func()      // releases kept connections; nil when there are none
 	hostPort    string
 	serverAddr  string
 	concurrency int
@@ -36,6 +38,10 @@ type Resolver struct {
 // NewResolver queries server with plain DNS on port 53, or with DNS over
 // TLS on port 853 when server.TLSName is set.
 func NewResolver(server DNSServer, concurrency int) *Resolver {
+	if server.DoQName != "" {
+		tlsConfig := &tls.Config{ServerName: server.DoQName, MinVersion: tls.VersionTLS13, NextProtos: []string{"doq"}}
+		return newDoQResolver(server.Addr, net.JoinHostPort(server.Addr, "853"), tlsConfig, concurrency)
+	}
 	if server.DoHURL != "" {
 		// isValidDoHURL has checked the URL, so the error cannot happen.
 		u, _ := url.Parse(server.DoHURL) //nolint:errcheck // validated by isValidDoHURL
@@ -102,17 +108,17 @@ func newDoHResolver(serverAddr, dohURL, hostPort string, tlsConfig *tls.Config, 
 	if concurrency < 1 {
 		concurrency = 1
 	}
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-				return dialer.DialContext(ctx, network, hostPort)
-			},
-			TLSClientConfig:     tlsConfig,
-			ForceAttemptHTTP2:   true,
-			MaxIdleConnsPerHost: concurrency,
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, hostPort)
 		},
+		TLSClientConfig:     tlsConfig,
+		ForceAttemptHTTP2:   true,
+		MaxIdleConnsPerHost: concurrency,
 	}
+	client := &http.Client{Transport: transport}
 	return &Resolver{
+		close: transport.CloseIdleConnections,
 		netResolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -208,6 +214,14 @@ type dohAddr string
 func (a dohAddr) Network() string { return "https" }
 func (a dohAddr) String() string  { return string(a) }
 
+// Close releases the connections that DoH and DoQ resolvers keep between
+// lookups.
+func (r *Resolver) Close() {
+	if r.close != nil {
+		r.close()
+	}
+}
+
 // Precheck returns an error when no lookup against the resolver can
 // succeed, however often it is retried.
 //
@@ -226,6 +240,9 @@ func (r *Resolver) Precheck(ctx context.Context) error {
 		return fmt.Errorf("no route to resolver %s: %w", r.serverAddr, err)
 	}
 
+	if r.doq != nil {
+		return r.doq.precheck(ctx)
+	}
 	if r.tlsDialer == nil {
 		return nil
 	}

@@ -61,7 +61,7 @@ func builtinsByFilter() map[string][]DNSServer {
 	for _, onlyMajor := range []bool{false, true} {
 		for _, primaryOnly := range []bool{false, true} {
 			for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6, FamilyAll} {
-				for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportAll} {
+				for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportDoQ, TransportAll} {
 					f := builtinFilter{onlyMajor: onlyMajor, primaryOnly: primaryOnly, family: family, transport: transport}
 					lists[builtinsKey(f)] = builtinServers(f)
 				}
@@ -318,8 +318,11 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 		if srv.DoHURL != "" && !isValidDoHURL(srv.DoHURL) {
 			return nil, nil, nil, fmt.Errorf("invalid DoH URL %q for resolver %s: want an https URL", srv.DoHURL, srv.Addr)
 		}
-		if srv.TLSName != "" && srv.DoHURL != "" {
-			return nil, nil, nil, fmt.Errorf("resolver %s has both a TLS name and a DoH URL: pick one", srv.Addr)
+		if srv.DoQName != "" && !isValidDomain(srv.DoQName) {
+			return nil, nil, nil, fmt.Errorf("invalid DoQ name %q for resolver %s", srv.DoQName, srv.Addr)
+		}
+		if countSet(srv.TLSName, srv.DoHURL, srv.DoQName) > 1 {
+			return nil, nil, nil, fmt.Errorf("resolver %s sets more than one of a TLS name, a DoH URL, and a DoQ name: pick one", srv.Addr)
 		}
 		if srv.Name == "" {
 			servers[i].Name = srv.Addr
@@ -335,6 +338,17 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 	}
 
 	return &cfg, servers, domains, nil
+}
+
+// countSet counts the nonempty strings in fields.
+func countSet(fields ...string) int {
+	n := 0
+	for _, f := range fields {
+		if f != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

@@ -103,6 +103,7 @@ const (
 	TransportPlain Transport = iota // DNS over UDP port 53, TCP on truncation
 	TransportDoT                    // DNS over TLS on TCP port 853
 	TransportDoH                    // DNS over HTTPS on TCP port 443
+	TransportDoQ                    // DNS over QUIC on UDP port 853
 	TransportAll
 )
 
@@ -112,6 +113,8 @@ func (t Transport) String() string {
 		return "dot"
 	case TransportDoH:
 		return "doh"
+	case TransportDoQ:
+		return "doq"
 	case TransportAll:
 		return "all"
 	default:
@@ -127,10 +130,12 @@ func parseTransport(s string) (Transport, error) {
 		return TransportDoT, nil
 	case "doh":
 		return TransportDoH, nil
+	case "doq":
+		return TransportDoQ, nil
 	case "all":
 		return TransportAll, nil
 	default:
-		return TransportPlain, fmt.Errorf("invalid transport %q: want plain, dot, doh, or all", s)
+		return TransportPlain, fmt.Errorf("invalid transport %q: want plain, dot, doh, doq, or all", s)
 	}
 }
 
@@ -217,7 +222,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
 	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Benchmark only the first address of each built-in provider, such as Cloudflare-1")
 	flag.StringVar(&family, "family", "ipv4", "Address family of the built-in resolvers: ipv4, ipv6, or all")
-	flag.StringVar(&transport, "proto", "plain", "Transport of the built-in resolvers: plain, dot (DNS over TLS), doh (DNS over HTTPS), or all")
+	flag.StringVar(&transport, "proto", "plain", "Transport of the built-in resolvers: plain, dot (DNS over TLS), doh (DNS over HTTPS), doq (DNS over QUIC), or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Warmup lookups to run before each measured lookup")
 	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
 	flag.StringVar(&listenAddr, "listen", ":8080", "Address for the Web UI HTTP server (used with -ui)")
@@ -382,7 +387,7 @@ type builtinFilter struct {
 
 // builtinServers lists the built-in resolvers that match f, in the order
 // of the providers table. For each provider, plain DNS comes first, then
-// DoT, then DoH, and IPv4 comes before IPv6. The names follow the pattern
+// DoT, DoH, and DoQ, and IPv4 comes before IPv6. The names follow the pattern
 // in the provider comment.
 func builtinServers(f builtinFilter) []DNSServer {
 	var servers []DNSServer
@@ -400,6 +405,9 @@ func builtinServers(f builtinFilter) []DNSServer {
 			case TransportDoH:
 				name += "-DoH"
 				s.DoHURL = p.dohURL
+			case TransportDoQ:
+				name += "-DoQ"
+				s.DoQName = p.doqName
 			default:
 			}
 			if v6 {
@@ -413,14 +421,15 @@ func builtinServers(f builtinFilter) []DNSServer {
 		if f.onlyMajor && !p.major {
 			continue
 		}
-		for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH} {
+		for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportDoQ} {
 			if f.transport != TransportAll && f.transport != transport {
 				continue
 			}
 			switch {
 			case transport == TransportPlain && p.encryptedOnly,
 				transport == TransportDoT && p.tlsName == "",
-				transport == TransportDoH && p.dohURL == "":
+				transport == TransportDoH && p.dohURL == "",
+				transport == TransportDoQ && p.doqName == "":
 				continue
 			}
 			if f.family != FamilyIPv6 {
@@ -435,10 +444,12 @@ func builtinServers(f builtinFilter) []DNSServer {
 }
 
 // loadServers loads DNS servers from a file or uses built-in resolvers.
-// Format: name;ip, name;ip;tls-name, or name;ip;https-url per line.
-// Comments start with #. A third field that starts with https:// makes the
-// resolver DNS over HTTPS at that URL. Any other third field makes it DNS
-// over TLS, with the field as the name its certificate must match.
+// Format: name;ip, name;ip;tls-name, name;ip;https-url, or
+// name;ip;quic://tls-name per line. Comments start with #. A third field
+// that starts with https:// makes the resolver DNS over HTTPS at that URL.
+// One that starts with quic:// makes it DNS over QUIC, with the rest as the
+// name its certificate must match. Any other third field makes it DNS over
+// TLS, with the field as that name.
 // If resolversFile is empty, the built-in resolvers matching the filter are
 // used. A file is used as written: the filter does not apply.
 func loadServers(resolversFile string, filter builtinFilter) ([]DNSServer, error) {
@@ -472,7 +483,7 @@ func loadServers(resolversFile string, filter builtinFilter) ([]DNSServer, error
 
 		parts := strings.Split(line, ";")
 		if len(parts) != 2 && len(parts) != 3 {
-			return nil, fmt.Errorf("invalid format at line %d: expected 'name;ip', 'name;ip;tls-name', or 'name;ip;https-url'", lineNum)
+			return nil, fmt.Errorf("invalid format at line %d: expected 'name;ip', 'name;ip;tls-name', 'name;ip;https-url', or 'name;ip;quic://tls-name'", lineNum)
 		}
 
 		name := strings.TrimSpace(parts[0])
@@ -495,6 +506,11 @@ func loadServers(resolversFile string, filter builtinFilter) ([]DNSServer, error
 					return nil, fmt.Errorf("invalid DoH URL at line %d: %q", lineNum, third)
 				}
 				server.DoHURL = third
+			case strings.HasPrefix(third, "quic://"):
+				server.DoQName = strings.TrimPrefix(third, "quic://")
+				if !isValidDomain(server.DoQName) {
+					return nil, fmt.Errorf("invalid DoQ name at line %d: %q", lineNum, third)
+				}
 			case isValidDomain(third):
 				server.TLSName = third
 			default:

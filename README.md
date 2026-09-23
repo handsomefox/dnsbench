@@ -57,38 +57,44 @@ the same choice as **First address only**.
 The built-in resolver and domain lists are in [`data.go`](data.go). Every flag,
 its default, and every report field is in the [CLI reference](docs/cli.md).
 
-## Test IPv6, DNS over TLS, and DNS over HTTPS
+## Test IPv6 and encrypted DNS
 
 The built-in resolvers run over plain DNS on IPv4 by default. `-family` picks
 the address family: `ipv4`, `ipv6`, or `all`. `-proto` picks the transport:
-`plain`, `dot`, `doh`, or `all`. To compare everything the major providers
+`plain`, `dot` for DNS over TLS, `doh` for DNS over HTTPS, `doq` for DNS over
+QUIC, or `all`. To compare everything the major providers
 offer, one address each, run:
 
 ```bash
 ./bin/dnsbench -major -primary -family all -proto all -output table
 ```
 
-The resolvers get names like `Cloudflare-v6-1`, `Cloudflare-DoT-1`, and
-`Cloudflare-DoH-v6-1`. If your host has no IPv6 route, dnsbench marks each IPv6
+The resolvers get names like `Cloudflare-v6-1`, `Cloudflare-DoT-1`,
+`Cloudflare-DoH-v6-1`, and `AdGuard-DoQ-1`. Only AdGuard, NextDNS, Quad9, and
+AliDNS serve DoQ. If your host has no IPv6 route, dnsbench marks each IPv6
 resolver as failed at once instead of retrying it.
 
-The two encrypted transports measure different things. Each DoT lookup opens a
-new TLS connection and pays for the handshakes. DoH keeps its connection open,
-so after the first lookups it measures a warm connection. Compare resolvers
-within one transport. For details, see [DNS over TLS](docs/cli.md#dns-over-tls)
-and [DNS over HTTPS](docs/cli.md#dns-over-https).
+The encrypted transports measure different things. Each DoT lookup opens a new
+TLS connection and pays for the handshakes. DoH and DoQ keep their connection
+open, so after the first lookups they measure a warm connection. Compare
+resolvers within one transport. For details, see
+[DNS over TLS](docs/cli.md#dns-over-tls),
+[DNS over HTTPS](docs/cli.md#dns-over-https), and
+[DNS over QUIC](docs/cli.md#dns-over-quic).
 
 ## Use your own resolvers and domains
 
 Write `resolvers.txt` with one `name;ip` pair per line. Addresses can be IPv4 or
 IPv6. For DNS over TLS, add a third field with the name on the resolver's
-certificate. For DNS over HTTPS, make the third field the DoH URL:
+certificate. For DNS over HTTPS, make the third field the DoH URL. For DNS over
+QUIC, make it `quic://` and the certificate name:
 
 ```text
 Cloudflare-1;1.1.1.1
 Google-v6-1;2001:4860:4860::8888
 Quad9-DoT;9.9.9.9;dns.quad9.net
 Quad9-DoH;9.9.9.9;https://dns.quad9.net/dns-query
+Quad9-DoQ;9.9.9.9;quic://dns.quad9.net
 Router;fe80::1%eth0
 ```
 

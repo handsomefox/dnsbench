@@ -625,7 +625,8 @@ input[type="radio"] {
 }
 
 .tag-dot,
-.tag-doh {
+.tag-doh,
+.tag-doq {
 	border-color: var(--dot-tag);
 	color: var(--dot-tag);
 }
