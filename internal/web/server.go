@@ -1,9 +1,10 @@
-package main
+// Package web serves the dashboard and runs benchmarks for it, streaming
+// each lookup to the page over server-sent events.
+package web
 
 import (
 	"bytes"
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,12 +18,14 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/handsomefox/dnsbench/internal/bench"
+	"github.com/handsomefox/dnsbench/internal/catalog"
+	"github.com/handsomefox/dnsbench/internal/dnsclient"
+	"github.com/handsomefox/dnsbench/ui"
 )
 
-//go:embed ui
-var uiFS embed.FS
-
-var pageTemplate = template.Must(template.ParseFS(uiFS, "ui/index.html.tmpl"))
+var pageTemplate = template.Must(template.ParseFS(ui.FS, "index.html.tmpl"))
 
 type runOptions struct {
 	Repeats     int    `json:"repeats"`
@@ -36,9 +39,9 @@ type runOptions struct {
 }
 
 type runRequest struct {
-	Domains   []string    `json:"domains"`
-	Resolvers []DNSServer `json:"resolvers"`
-	Options   runOptions  `json:"options"`
+	Domains   []string           `json:"domains"`
+	Resolvers []dnsclient.Server `json:"resolvers"`
+	Options   runOptions         `json:"options"`
 }
 
 // pageData fills ui/index.html.tmpl. Builtins and DefaultDomains go into
@@ -48,19 +51,29 @@ type pageData struct {
 	Domains        string
 	DefaultDomains []string
 	Options        runOptions
-	Builtins       []builtinEntry
+	Builtins       []catalog.Entry
+}
+
+// Options set up the dashboard. Bench and Filter are the defaults the page
+// starts from.
+type Options struct {
+	Listen string
+	Bench  bench.Options
+	Filter catalog.Filter
 }
 
 type uiServer struct {
 	hub        *SSEHub
-	baseConfig *Config
+	baseConfig *Options
 	ctx        context.Context
 	mu         sync.Mutex
 	cancel     context.CancelFunc
 	currentRun string
 }
 
-func serveDashboard(ctx context.Context, config *Config) error {
+// Serve runs the dashboard on opts.Listen until ctx ends, and tries to open
+// it in the default browser.
+func Serve(ctx context.Context, config *Options) error {
 	srv := &uiServer{
 		hub:        NewSSEHub(),
 		baseConfig: config,
@@ -68,7 +81,7 @@ func serveDashboard(ctx context.Context, config *Config) error {
 	}
 
 	server := &http.Server{
-		Addr:              config.ListenAddr,
+		Addr:              config.Listen,
 		Handler:           srv.routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -80,7 +93,7 @@ func serveDashboard(ctx context.Context, config *Config) error {
 			return
 		default:
 		}
-		url := config.ListenAddr
+		url := config.Listen
 		if strings.HasPrefix(url, ":") {
 			url = "localhost" + url
 		}
@@ -93,7 +106,7 @@ func serveDashboard(ctx context.Context, config *Config) error {
 		if err := openBrowser(ctx, url); err != nil {
 			slog.Warn(
 				"failed to open browser for Web UI",
-				slogErr(err),
+				slog.Any("err", err),
 				slog.String("url", url),
 			)
 		}
@@ -104,11 +117,11 @@ func serveDashboard(ctx context.Context, config *Config) error {
 		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			slog.Warn("graceful shutdown failed", slogErr(err))
+			slog.Warn("graceful shutdown failed", slog.Any("err", err))
 		}
 	}()
 
-	slog.Info("Starting Web UI server", slog.String("addr", config.ListenAddr))
+	slog.Info("Starting Web UI server", slog.String("addr", config.Listen))
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("http server: %w", err)
 	}
@@ -116,7 +129,7 @@ func serveDashboard(ctx context.Context, config *Config) error {
 }
 
 func (s *uiServer) routes() http.Handler {
-	static, err := fs.Sub(uiFS, "ui/static")
+	static, err := fs.Sub(ui.FS, "static")
 	if err != nil {
 		panic(err) // ui/static is embedded at build time.
 	}
@@ -133,31 +146,31 @@ func (s *uiServer) routes() http.Handler {
 
 func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
 	data := pageData{
-		Domains: strings.Join(defaultSites, "\n"),
+		Domains: strings.Join(catalog.DefaultDomains, "\n"),
 		Options: runOptions{
-			Repeats:     s.baseConfig.Repeats,
-			TimeoutMs:   int(s.baseConfig.LookupTimeout.Milliseconds()),
-			Concurrency: s.baseConfig.MaxConcurrency,
-			Warmup:      s.baseConfig.WarmupRuns,
-			OnlyMajor:   s.baseConfig.OnlyMajorResolvers,
-			PrimaryOnly: s.baseConfig.PrimaryOnly,
-			Family:      s.baseConfig.Family.String(),
-			Transport:   s.baseConfig.Transport.String(),
+			Repeats:     s.baseConfig.Bench.Repeats,
+			TimeoutMs:   int(s.baseConfig.Bench.Timeout.Milliseconds()),
+			Concurrency: s.baseConfig.Bench.Concurrency,
+			Warmup:      s.baseConfig.Bench.Warmup,
+			OnlyMajor:   s.baseConfig.Filter.Major,
+			PrimaryOnly: s.baseConfig.Filter.Primary,
+			Family:      s.baseConfig.Filter.Family.String(),
+			Transport:   s.baseConfig.Filter.Transport.String(),
 		},
-		DefaultDomains: defaultSites,
-		Builtins:       builtinCatalog(),
+		DefaultDomains: catalog.DefaultDomains,
+		Builtins:       catalog.All(),
 	}
 
 	// Render into a buffer so a template error still produces a clean 500.
 	var buf bytes.Buffer
 	if err := pageTemplate.Execute(&buf, data); err != nil {
-		slog.Error("failed to render the dashboard", slogErr(err))
+		slog.Error("failed to render the dashboard", slog.Any("err", err))
 		http.Error(w, "failed to render page", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if _, err := buf.WriteTo(w); err != nil {
-		slog.Warn("failed to write the dashboard", slogErr(err))
+		slog.Warn("failed to write the dashboard", slog.Any("err", err))
 	}
 }
 
@@ -189,9 +202,9 @@ func (s *uiServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	go func() {
-		results, runErr := runBenchmark(runCtx, cfg, servers, domains, reporter)
+		results, runErr := bench.Run(runCtx, *cfg, servers, domains, reporter)
 		if runErr != nil {
-			slog.LogAttrs(runCtx, slog.LevelWarn, "benchmark finished with error", slogErr(runErr))
+			slog.LogAttrs(runCtx, slog.LevelWarn, "benchmark finished with error", slog.Any("err", runErr))
 		}
 		if runErr == nil {
 			slog.LogAttrs(runCtx, slog.LevelInfo, "benchmark completed", slog.Int("results", len(results)))
@@ -245,91 +258,67 @@ func (s *uiServer) handleReset(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, map[string]string{"status": "reset"})
 }
 
-func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []string, error) {
-	cfg := *s.baseConfig
+// buildRunConfig checks a run request and returns the run's options, its
+// resolvers, and its domains. A request without resolvers gets the
+// built-in ones that its filter options select.
+func (s *uiServer) buildRunConfig(req *runRequest) (*bench.Options, []dnsclient.Server, []string, error) {
+	opts := s.baseConfig.Bench
+	filter := s.baseConfig.Filter
 
 	if req.Options.Repeats > 0 {
-		cfg.Repeats = req.Options.Repeats
+		opts.Repeats = req.Options.Repeats
 	}
 	if req.Options.Concurrency > 0 {
-		cfg.MaxConcurrency = req.Options.Concurrency
+		opts.Concurrency = req.Options.Concurrency
 	}
 	if req.Options.TimeoutMs > 0 {
-		cfg.LookupTimeout = time.Duration(req.Options.TimeoutMs) * time.Millisecond
+		opts.Timeout = time.Duration(req.Options.TimeoutMs) * time.Millisecond
 	}
-	if cfg.LookupTimeout < 100*time.Millisecond {
+	if opts.Timeout < 100*time.Millisecond {
 		return nil, nil, nil, errors.New("timeout must be at least 100ms")
 	}
-	cfg.WarmupRuns = req.Options.Warmup
-	cfg.OnlyMajorResolvers = req.Options.OnlyMajor
-	cfg.PrimaryOnly = req.Options.PrimaryOnly
+	opts.Warmup = req.Options.Warmup
+	filter.Major = req.Options.OnlyMajor
+	filter.Primary = req.Options.PrimaryOnly
 	if req.Options.Family != "" {
-		family, err := parseFamily(req.Options.Family)
+		family, err := catalog.ParseFamily(req.Options.Family)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		cfg.Family = family
+		filter.Family = family
 	}
 	if req.Options.Transport != "" {
-		transport, err := parseTransport(req.Options.Transport)
+		transport, err := catalog.ParseTransport(req.Options.Transport)
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		cfg.Transport = transport
+		filter.Transport = transport
 	}
 
 	domains := req.Domains
 	if len(domains) == 0 {
-		domains = defaultSites
+		domains = catalog.DefaultDomains
 	}
 	for _, d := range domains {
-		if !isValidDomain(d) {
+		if !dnsclient.IsValidDomain(d) {
 			return nil, nil, nil, fmt.Errorf("invalid domain %q", d)
 		}
 	}
 
 	servers := req.Resolvers
-	for i, srv := range servers {
-		if !isValidServerAddr(srv.Addr) {
-			return nil, nil, nil, fmt.Errorf("invalid resolver address %q: want an IP address without a port", srv.Addr)
+	for i := range servers {
+		if err := servers[i].Validate(); err != nil {
+			return nil, nil, nil, err
 		}
-		if srv.TLSName != "" && !isValidDomain(srv.TLSName) {
-			return nil, nil, nil, fmt.Errorf("invalid TLS name %q for resolver %s", srv.TLSName, srv.Addr)
-		}
-		if srv.DoHURL != "" && !isValidDoHURL(srv.DoHURL) {
-			return nil, nil, nil, fmt.Errorf("invalid DoH URL %q for resolver %s: want an https URL", srv.DoHURL, srv.Addr)
-		}
-		if srv.DoQName != "" && !isValidDomain(srv.DoQName) {
-			return nil, nil, nil, fmt.Errorf("invalid DoQ name %q for resolver %s", srv.DoQName, srv.Addr)
-		}
-		if countSet(srv.TLSName, srv.DoHURL, srv.DoQName) > 1 {
-			return nil, nil, nil, fmt.Errorf("resolver %s sets more than one of a TLS name, a DoH URL, and a DoQ name: pick one", srv.Addr)
-		}
-		if srv.Name == "" {
-			servers[i].Name = srv.Addr
+		if servers[i].Name == "" {
+			servers[i].Name = servers[i].Addr
 		}
 	}
 	if len(servers) == 0 {
-		servers = builtinServers(builtinFilter{
-			onlyMajor:   cfg.OnlyMajorResolvers,
-			primaryOnly: cfg.PrimaryOnly,
-			family:      cfg.Family,
-			transport:   cfg.Transport,
-		})
+		servers = catalog.Servers(filter)
 	}
 
-	return &cfg, servers, domains, nil
-}
-
-// countSet counts the nonempty strings in fields.
-func countSet(fields ...string) int {
-	n := 0
-	for _, f := range fields {
-		if f != "" {
-			n++
-		}
-	}
-	return n
+	return &opts, servers, domains, nil
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

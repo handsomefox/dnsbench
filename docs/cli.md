@@ -13,7 +13,7 @@ when a UDP answer arrives truncated. A DNS over TLS (DoT) resolver gets them
 over TLS on TCP port 853. A DNS over HTTPS (DoH) resolver gets them as HTTPS
 POST requests on TCP port 443. A DNS over QUIC (DoQ) resolver gets them over
 QUIC on UDP port 853. The built-in resolver and domain lists are in
-[`data.go`](../data.go).
+[`internal/catalog/data.go`](../internal/catalog/data.go).
 
 dnsbench builds each query itself and sends it straight to the resolver. The
 host's `/etc/hosts`, its search domains, and its `resolv.conf` options play no

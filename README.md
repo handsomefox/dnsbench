@@ -54,7 +54,8 @@ Most providers list two addresses that perform alike. To halve a run, pass
 `-primary` to test only the first, such as `Cloudflare-1`. The dashboard has
 the same choice as **First address only**.
 
-The built-in resolver and domain lists are in [`data.go`](data.go). Every flag,
+The built-in resolver and domain lists are in
+[`internal/catalog/data.go`](internal/catalog/data.go). Every flag,
 its default, and every report field is in the [CLI reference](docs/cli.md).
 
 ## Test IPv6 and encrypted DNS

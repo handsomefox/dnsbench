@@ -1,4 +1,4 @@
-package main
+package bench
 
 import (
 	"context"
@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/handsomefox/dnsbench/internal/dnsclient"
+	"github.com/handsomefox/dnsbench/internal/dnstest"
 )
 
 func TestStats_IsValid(t *testing.T) {
@@ -189,13 +192,13 @@ func TestCalculateStats(t *testing.T) {
 
 func TestRunBenchmark_ValidatesInput(t *testing.T) {
 	ctx := context.Background()
-	cfg := &Config{Repeats: 1}
+	cfg := Options{Repeats: 1}
 
-	if _, err := runBenchmark(ctx, cfg, nil, []string{"example.com"}, NoopReporter{}); err == nil {
+	if _, err := Run(ctx, cfg, nil, []string{"example.com"}, NoopReporter{}); err == nil {
 		t.Fatalf("expected error for missing servers")
 	}
 
-	if _, err := runBenchmark(ctx, cfg, []DNSServer{{Name: "a", Addr: "1.1.1.1"}}, nil, NoopReporter{}); err == nil {
+	if _, err := Run(ctx, cfg, []dnsclient.Server{{Name: "a", Addr: "1.1.1.1"}}, nil, NoopReporter{}); err == nil {
 		t.Fatalf("expected error for missing domains")
 	}
 }
@@ -227,7 +230,7 @@ func TestStats_MarshalJSON(t *testing.T) {
 		},
 		{
 			name: "inside a result",
-			v:    BenchmarkResult{Server: DNSServer{Name: "a", Addr: "192.0.2.1"}, Stats: failed},
+			v:    Result{Server: dnsclient.Server{Name: "a", Addr: "192.0.2.1"}, Stats: failed},
 			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0}}`,
 		},
 	}
@@ -251,7 +254,7 @@ type countingReporter struct {
 	err    atomic.Value
 }
 
-func (r *countingReporter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int, err error) {
+func (r *countingReporter) OnQueryResult(_ dnsclient.Server, _ string, _ float64, _ int, err error) {
 	if err != nil {
 		r.failed.Add(1)
 		r.err.Store(err.Error())
@@ -262,18 +265,18 @@ func (r *countingReporter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int
 // attempts with backoff. The zoned link-local address names an interface
 // that does not exist, so the UDP connect fails on any host.
 func TestRunBenchmark_UnreachableResolverFailsFast(t *testing.T) {
-	cfg := &Config{Repeats: 3, LookupTimeout: time.Second, MaxConcurrency: 2}
-	servers := []DNSServer{{Name: "nowhere", Addr: "fe80::1%nosuchif0"}}
+	cfg := Options{Repeats: 3, Timeout: time.Second, Concurrency: 2}
+	servers := []dnsclient.Server{{Name: "nowhere", Addr: "fe80::1%nosuchif0"}}
 	domains := []string{"example.com", "example.org"}
 	reporter := &countingReporter{}
 
 	start := time.Now()
-	results, err := runBenchmark(t.Context(), cfg, servers, domains, reporter)
+	results, err := Run(t.Context(), cfg, servers, domains, reporter)
 	if err != nil {
-		t.Fatalf("runBenchmark() error = %v", err)
+		t.Fatalf("Run() error = %v", err)
 	}
 	if took := time.Since(start); took > time.Second {
-		t.Errorf("runBenchmark() took %v, want under a second", took)
+		t.Errorf("Run() took %v, want under a second", took)
 	}
 
 	stats := results[0].Stats
@@ -288,29 +291,26 @@ func TestRunBenchmark_UnreachableResolverFailsFast(t *testing.T) {
 	}
 }
 
-// useFakeDoT points every server of a run at f.
-func useFakeDoT(t *testing.T, f *fakeDoT) {
-	t.Helper()
-	saved := newResolverFor
-	t.Cleanup(func() { newResolverFor = saved })
-	newResolverFor = func(server DNSServer, concurrency int) *Resolver {
-		return newResolver(server.Addr, f.hostPort, f.config(), concurrency)
+// viaDoT points every server of a run at the fake DoT server f.
+func viaDoT(f *dnstest.DoT) func(dnsclient.Server, int) *dnsclient.Resolver {
+	return func(server dnsclient.Server, concurrency int) *dnsclient.Resolver {
+		server.TLSName = "dns.test"
+		return dnsclient.New(server, concurrency, dnsclient.WithHostPort(f.HostPort), dnsclient.WithRootCAs(f.Roots))
 	}
 }
 
 // Each resolver gets every domain Repeats times, plus WarmupRuns warmup
 // lookups of each domain before its first measured lookup.
 func TestRunBenchmark_CountsLookupsAndWarmups(t *testing.T) {
-	f := startFakeDoTWith(t, false)
-	useFakeDoT(t, f)
+	f := dnstest.StartDoT(t, false)
 
-	cfg := &Config{Repeats: 2, WarmupRuns: 1, LookupTimeout: 2 * time.Second, MaxConcurrency: 4}
-	servers := []DNSServer{{Name: "a", Addr: "127.0.0.1"}, {Name: "b", Addr: "127.0.0.2"}}
+	cfg := Options{Repeats: 2, Warmup: 1, Timeout: 2 * time.Second, Concurrency: 4, NewResolver: viaDoT(f)}
+	servers := []dnsclient.Server{{Name: "a", Addr: "127.0.0.1"}, {Name: "b", Addr: "127.0.0.2"}}
 	domains := []string{"one.example", "two.example", "three.example"}
 
-	results, err := runBenchmark(t.Context(), cfg, servers, domains, nil)
+	results, err := Run(t.Context(), cfg, servers, domains, nil)
 	if err != nil {
-		t.Fatalf("runBenchmark() error = %v", err)
+		t.Fatalf("Run() error = %v", err)
 	}
 	for i, r := range results {
 		if r.Server != servers[i] {
@@ -321,7 +321,7 @@ func TestRunBenchmark_CountsLookupsAndWarmups(t *testing.T) {
 		}
 	}
 	// Two servers × (3 domains × 2 repeats + 3 domains × 1 warmup).
-	if got := f.queries.Load(); got != 18 {
+	if got := f.Queries.Load(); got != 18 {
 		t.Errorf("server saw %d queries, want 18", got)
 	}
 }
@@ -333,7 +333,7 @@ type cancelAfter struct {
 	cancel context.CancelFunc
 }
 
-func (r *cancelAfter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int, _ error) {
+func (r *cancelAfter) OnQueryResult(_ dnsclient.Server, _ string, _ float64, _ int, _ error) {
 	if r.n.Add(-1) == 0 {
 		r.cancel()
 	}
@@ -341,19 +341,18 @@ func (r *cancelAfter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int, _ e
 
 // Stopping a run must not count the lookups it cut short as failures.
 func TestRunBenchmark_CancelDoesNotCountFailures(t *testing.T) {
-	f := startFakeDoTWith(t, false)
-	useFakeDoT(t, f)
+	f := dnstest.StartDoT(t, false)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	reporter := &cancelAfter{cancel: cancel}
 	reporter.n.Store(3)
 
-	cfg := &Config{Repeats: 20, LookupTimeout: 2 * time.Second, MaxConcurrency: 2}
-	servers := []DNSServer{{Name: "a", Addr: "127.0.0.1"}, {Name: "b", Addr: "127.0.0.2"}}
-	results, err := runBenchmark(ctx, cfg, servers, []string{"one.example", "two.example"}, reporter)
+	cfg := Options{Repeats: 20, Timeout: 2 * time.Second, Concurrency: 2, NewResolver: viaDoT(f)}
+	servers := []dnsclient.Server{{Name: "a", Addr: "127.0.0.1"}, {Name: "b", Addr: "127.0.0.2"}}
+	results, err := Run(ctx, cfg, servers, []string{"one.example", "two.example"}, reporter)
 	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("runBenchmark() error = %v, want context.Canceled", err)
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
 	}
 	for _, r := range results {
 		if r.Stats.Errors != 0 {
@@ -365,46 +364,54 @@ func TestRunBenchmark_CancelDoesNotCountFailures(t *testing.T) {
 	}
 }
 
-// useSilentDNS points every server of a run at a UDP server that reads
-// queries and never answers.
-func useSilentDNS(t *testing.T) *atomic.Int32 {
-	t.Helper()
-	addr, queries := startSilentDNS(t)
-	saved := newResolverFor
-	t.Cleanup(func() { newResolverFor = saved })
-	newResolverFor = func(server DNSServer, concurrency int) *Resolver {
-		return newResolver(server.Addr, addr, nil, concurrency)
+// viaHostPort points every server of a run at hostPort over plain DNS.
+func viaHostPort(hostPort string) func(dnsclient.Server, int) *dnsclient.Resolver {
+	return func(server dnsclient.Server, concurrency int) *dnsclient.Resolver {
+		return dnsclient.New(server, concurrency, dnsclient.WithHostPort(hostPort))
 	}
-	return queries
 }
 
 // A resolver that passes the precheck but never answers must not cost
 // every lookup its full timeout. The run gives up on it after giveUpAfter
 // failed lookups and fails the rest at once.
 func TestRunBenchmark_GivesUpOnSilentResolver(t *testing.T) {
-	queries := useSilentDNS(t)
+	addr, queries := dnstest.StartSilent(t)
 
-	cfg := &Config{Repeats: 10, LookupTimeout: 100 * time.Millisecond, Retries: 0, MaxConcurrency: 2}
+	cfg := Options{Repeats: 10, Timeout: 100 * time.Millisecond, Retries: 0, Concurrency: 2, NewResolver: viaHostPort(addr)}
 	domains := []string{"one.example", "two.example", "three.example", "four.example"}
 	reporter := &countingReporter{}
 
 	start := time.Now()
-	results, err := runBenchmark(t.Context(), cfg, []DNSServer{{Name: "silent", Addr: "127.0.0.1"}}, domains, reporter)
+	results, err := Run(t.Context(), cfg, []dnsclient.Server{{Name: "silent", Addr: "127.0.0.1"}}, domains, reporter)
 	if err != nil {
-		t.Fatalf("runBenchmark() error = %v", err)
+		t.Fatalf("Run() error = %v", err)
 	}
 	// Forty lookups at 100 ms each, two at a time, would take two seconds.
 	if took := time.Since(start); took > time.Second {
-		t.Errorf("runBenchmark() took %v, want it to give up well before a second", took)
+		t.Errorf("Run() took %v, want it to give up well before a second", took)
 	}
 	if stats := results[0].Stats; stats.Errors != 40 || stats.Total != 40 {
 		t.Errorf("stats = %+v, want 40 failed lookups of 40", stats)
 	}
 	// The lookups in flight when the run gave up had sent their queries.
-	if got := int(queries.Load()); got > giveUpAfter+cfg.MaxConcurrency {
+	if got := int(queries.Load()); got > giveUpAfter+cfg.Concurrency {
 		t.Errorf("server saw %d queries, want about %d before the run gave up", got, giveUpAfter)
 	}
 	if msg, ok := reporter.err.Load().(string); !ok || !strings.Contains(msg, "gave up") {
 		t.Errorf("last reported error = %q, want it to say the run gave up", msg)
+	}
+}
+
+// warmUp sends runs lookups of the domain, one query each.
+func TestWarmUp_SendsRunsLookups(t *testing.T) {
+	hostPort, roots, queries := dnstest.StartDoH(t)
+	server := dnsclient.Server{Addr: "127.0.0.1", DoHURL: "https://example.com/dns-query"}
+	r := dnsclient.New(server, 2, dnsclient.WithHostPort(hostPort), dnsclient.WithRootCAs(roots))
+	defer r.Close()
+	for _, domain := range []string{"a.example.", "b.example."} {
+		warmUp(t.Context(), r, domain, 3)
+	}
+	if got := queries.Load(); got != 6 {
+		t.Errorf("server saw %d warmup queries, want 6: two domains, three runs each", got)
 	}
 }

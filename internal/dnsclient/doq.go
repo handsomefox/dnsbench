@@ -1,4 +1,4 @@
-package main
+package dnsclient
 
 import (
 	"context"
@@ -115,7 +115,7 @@ func (c *doqClient) precheck(ctx context.Context) error {
 	}
 	if err == nil {
 		if cerr := conn.CloseWithError(0, ""); cerr != nil {
-			slog.LogAttrs(ctx, slog.LevelDebug, "Failed to close precheck connection", slogErr(cerr))
+			slog.LogAttrs(ctx, slog.LevelDebug, "Failed to close precheck connection", slog.Any("err", cerr))
 		}
 	}
 	return nil
@@ -128,7 +128,7 @@ func (c *doqClient) close() {
 		return
 	}
 	if err := c.conn.CloseWithError(0, ""); err != nil {
-		slog.Debug("Failed to close DoQ connection", slogErr(err))
+		slog.Debug("Failed to close DoQ connection", slog.Any("err", err))
 	}
 	c.conn = nil
 }

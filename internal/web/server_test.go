@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"encoding/json"
@@ -8,10 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/handsomefox/dnsbench/internal/bench"
+	"github.com/handsomefox/dnsbench/internal/catalog"
+	"github.com/handsomefox/dnsbench/internal/dnsclient"
 )
 
 func TestUIServer_BuildRunConfig(t *testing.T) {
-	base := &Config{Repeats: 10, LookupTimeout: 3 * time.Second, MaxConcurrency: 4}
+	base := &Options{Bench: bench.Options{Repeats: 10, Timeout: 3 * time.Second, Concurrency: 4}}
 
 	tests := []struct {
 		name    string
@@ -26,7 +30,7 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 			name: "valid custom lists",
 			req: runRequest{
 				Domains:   []string{"example.com"},
-				Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1"}, {Addr: "2001:db8::1"}},
+				Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1"}, {Addr: "2001:db8::1"}},
 			},
 		},
 		{
@@ -39,39 +43,39 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 		},
 		{
 			name: "custom DoT resolver",
-			req:  runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", TLSName: "dns.example"}}},
+			req:  runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", TLSName: "dns.example"}}},
 		},
 		{
 			name:    "bad TLS name",
-			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", TLSName: "not a name"}}},
+			req:     runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", TLSName: "not a name"}}},
 			wantErr: "invalid TLS name",
 		},
 		{
 			name: "custom DoH resolver",
-			req:  runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoHURL: "https://dns.example/dns-query"}}},
+			req:  runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", DoHURL: "https://dns.example/dns-query"}}},
 		},
 		{
 			name:    "DoH URL over plain HTTP",
-			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoHURL: "http://dns.example/dns-query"}}},
+			req:     runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", DoHURL: "http://dns.example/dns-query"}}},
 			wantErr: "invalid DoH URL",
 		},
 		{
 			name:    "both DoT and DoH",
-			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", TLSName: "dns.example", DoHURL: "https://dns.example/dns-query"}}},
+			req:     runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", TLSName: "dns.example", DoHURL: "https://dns.example/dns-query"}}},
 			wantErr: "pick one",
 		},
 		{
 			name: "custom DoQ resolver",
-			req:  runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoQName: "dns.example"}}},
+			req:  runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", DoQName: "dns.example"}}},
 		},
 		{
 			name:    "both DoH and DoQ",
-			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoHURL: "https://dns.example/q", DoQName: "dns.example"}}},
+			req:     runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", DoHURL: "https://dns.example/q", DoQName: "dns.example"}}},
 			wantErr: "pick one",
 		},
 		{
 			name:    "bad DoQ name",
-			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", DoQName: "quic://dns.example"}}},
+			req:     runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1", DoQName: "quic://dns.example"}}},
 			wantErr: "invalid DoQ name",
 		},
 		{
@@ -86,12 +90,12 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 		},
 		{
 			name:    "hostname as resolver",
-			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "dns.example.com"}}},
+			req:     runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "dns.example.com"}}},
 			wantErr: "invalid resolver address",
 		},
 		{
 			name:    "resolver with port",
-			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1:53"}}},
+			req:     runRequest{Resolvers: []dnsclient.Server{{Name: "a", Addr: "192.0.2.1:53"}}},
 			wantErr: "invalid resolver address",
 		},
 		{
@@ -134,7 +138,7 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 func TestUIServer_Routes(t *testing.T) {
 	s := &uiServer{
 		hub:        NewSSEHub(),
-		baseConfig: &Config{Repeats: 7, LookupTimeout: 2 * time.Second, MaxConcurrency: 3},
+		baseConfig: &Options{Bench: bench.Options{Repeats: 7, Timeout: 2 * time.Second, Concurrency: 3}},
 	}
 	ts := httptest.NewServer(s.routes())
 	t.Cleanup(ts.Close)
@@ -168,7 +172,7 @@ func TestUIServer_Routes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer closeQuietly(resp.Body)
+			defer resp.Body.Close() //nolint:errcheck // a close error changes nothing in a test
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				t.Fatal(err)
@@ -188,7 +192,7 @@ func TestUIServer_Routes(t *testing.T) {
 // The page hands the built-in lists to app.js as JSON inside a script tag.
 // html/template must emit valid JSON there, not a Go-escaped string.
 func TestUIServer_BuiltinsDataIsland(t *testing.T) {
-	s := &uiServer{hub: NewSSEHub(), baseConfig: &Config{LookupTimeout: time.Second}}
+	s := &uiServer{hub: NewSSEHub(), baseConfig: &Options{Bench: bench.Options{Timeout: time.Second}}}
 	rec := httptest.NewRecorder()
 	s.handleIndex(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", http.NoBody))
 
@@ -203,12 +207,12 @@ func TestUIServer_BuiltinsDataIsland(t *testing.T) {
 		t.Fatal("builtins data island is not closed")
 	}
 
-	var got []builtinEntry
+	var got []catalog.Entry
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("data island is not valid JSON: %v\n%s", err, raw)
 	}
-	if len(got) != len(builtinCatalog()) {
-		t.Fatalf("data island has %d resolvers, want %d", len(got), len(builtinCatalog()))
+	if len(got) != len(catalog.All()) {
+		t.Fatalf("data island has %d resolvers, want %d", len(got), len(catalog.All()))
 	}
 	// app.js filters on these fields, so every entry needs them.
 	for _, e := range got {

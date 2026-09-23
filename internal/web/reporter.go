@@ -1,26 +1,11 @@
-package main
+package web
 
 import (
 	"time"
+
+	"github.com/handsomefox/dnsbench/internal/bench"
+	"github.com/handsomefox/dnsbench/internal/dnsclient"
 )
-
-// BenchmarkReporter provides hooks during benchmark execution.
-type BenchmarkReporter interface {
-	OnStart(totalResolvers int, domains []string)
-	OnResolverStart(server DNSServer, index, total int)
-	OnQueryResult(server DNSServer, domain string, latencyMs float64, attempts int, err error)
-	OnResolverDone(server DNSServer, stats Stats, took time.Duration)
-	OnComplete(results []BenchmarkResult, err error)
-}
-
-// NoopReporter is used when no callbacks are needed.
-type NoopReporter struct{}
-
-func (NoopReporter) OnStart(_ int, _ []string)                                      {}
-func (NoopReporter) OnResolverStart(_ DNSServer, _, _ int)                          {}
-func (NoopReporter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int, _ error) {}
-func (NoopReporter) OnResolverDone(_ DNSServer, _ Stats, _ time.Duration)           {}
-func (NoopReporter) OnComplete(_ []BenchmarkResult, _ error)                        {}
 
 // SSEReporter emits progress updates over SSE.
 type SSEReporter struct {
@@ -44,7 +29,7 @@ func (r *SSEReporter) OnStart(totalResolvers int, domains []string) {
 	})
 }
 
-func (r *SSEReporter) OnResolverStart(server DNSServer, index, total int) {
+func (r *SSEReporter) OnResolverStart(server dnsclient.Server, index, total int) {
 	r.hub.Broadcast(SSEEvent{
 		Type:  "resolver_start",
 		RunID: r.runID,
@@ -56,7 +41,7 @@ func (r *SSEReporter) OnResolverStart(server DNSServer, index, total int) {
 	})
 }
 
-func (r *SSEReporter) OnQueryResult(server DNSServer, domain string, latencyMs float64, attempts int, err error) {
+func (r *SSEReporter) OnQueryResult(server dnsclient.Server, domain string, latencyMs float64, attempts int, err error) {
 	detail := map[string]any{
 		"server":   server,
 		"domain":   domain,
@@ -73,7 +58,7 @@ func (r *SSEReporter) OnQueryResult(server DNSServer, domain string, latencyMs f
 	})
 }
 
-func (r *SSEReporter) OnResolverDone(server DNSServer, stats Stats, took time.Duration) {
+func (r *SSEReporter) OnResolverDone(server dnsclient.Server, stats bench.Stats, took time.Duration) {
 	r.hub.Broadcast(SSEEvent{
 		Type:  "resolver_done",
 		RunID: r.runID,
@@ -85,7 +70,7 @@ func (r *SSEReporter) OnResolverDone(server DNSServer, stats Stats, took time.Du
 	})
 }
 
-func (r *SSEReporter) OnComplete(results []BenchmarkResult, err error) {
+func (r *SSEReporter) OnComplete(results []bench.Result, err error) {
 	detail := map[string]any{
 		"results": results,
 	}

@@ -1,28 +1,66 @@
-package main
+// Package report writes a run's results as a table, CSV, or JSON.
+package report
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log/slog"
-	"math/rand/v2"
-	"net/netip"
-	"net/url"
 	"os"
 	"sort"
 	"strings"
-	"time"
+
+	"github.com/handsomefox/dnsbench/internal/bench"
 )
 
-func printSummary(results []BenchmarkResult, outputType OutputType) {
+// Format is a report format.
+type Format int
+
+const (
+	Default Format = iota
+	CSV
+	Table
+	JSON
+)
+
+func (o Format) String() string {
+	switch o {
+	case CSV:
+		return "csv"
+	case Table:
+		return "table"
+	case JSON:
+		return "json"
+	default:
+		return "default"
+	}
+}
+
+// ParseFormat parses a -output value: default, csv, table, or json, in any
+// case.
+func ParseFormat(s string) (Format, error) {
+	switch strings.ToLower(s) {
+	case "default":
+		return Default, nil
+	case "csv":
+		return CSV, nil
+	case "table":
+		return Table, nil
+	case "json":
+		return JSON, nil
+	default:
+		return Default, fmt.Errorf("invalid output type %q", s)
+	}
+}
+
+// Print writes results to standard output in format, and failed resolvers
+// to standard error for the csv and table formats.
+func Print(results []bench.Result, outputType Format) {
 	if len(results) == 0 {
 		fmt.Println("\nNo benchmark results to display")
 		return
 	}
 
-	var valid, failed []BenchmarkResult
+	var valid, failed []bench.Result
 	for _, r := range results {
 		if r.Stats.IsValid() {
 			valid = append(valid, r)
@@ -43,15 +81,15 @@ func printSummary(results []BenchmarkResult, outputType OutputType) {
 	printByType(outputType, valid, failed)
 }
 
-func printByType(t OutputType, valid, failed []BenchmarkResult) {
+func printByType(t Format, valid, failed []bench.Result) {
 	switch t {
-	case OutputCSV:
+	case CSV:
 		printResultsCSV(os.Stdout, valid, false)
 		printResultsCSV(os.Stderr, failed, true)
-	case OutputTable:
+	case Table:
 		printResultsTable(os.Stdout, valid, false)
 		printResultsTable(os.Stderr, failed, true)
-	case OutputJSON:
+	case JSON:
 		printResultsJSON(valid, failed)
 	default:
 		printDefaultSummary(valid, failed)
@@ -59,7 +97,7 @@ func printByType(t OutputType, valid, failed []BenchmarkResult) {
 }
 
 //nolint:errcheck // printing helper
-func printResultsCSV(w io.Writer, results []BenchmarkResult, failed bool) {
+func printResultsCSV(w io.Writer, results []bench.Result, failed bool) {
 	if len(results) == 0 {
 		return
 	}
@@ -87,7 +125,7 @@ func printResultsCSV(w io.Writer, results []BenchmarkResult, failed bool) {
 }
 
 //nolint:errcheck // printing helper
-func printResultsTable(w io.Writer, results []BenchmarkResult, failed bool) {
+func printResultsTable(w io.Writer, results []bench.Result, failed bool) {
 	if len(results) == 0 {
 		return
 	}
@@ -125,7 +163,7 @@ func printResultsTable(w io.Writer, results []BenchmarkResult, failed bool) {
 	}
 }
 
-func printDefaultSummary(valid, failed []BenchmarkResult) {
+func printDefaultSummary(valid, failed []bench.Result) {
 	fmt.Println("\n" + strings.Repeat("=", 80))
 	fmt.Println("DNS BENCHMARK RESULTS - TOP PERFORMERS")
 	fmt.Println(strings.Repeat("=", 80))
@@ -143,129 +181,20 @@ func printDefaultSummary(valid, failed []BenchmarkResult) {
 	}
 }
 
-// isValidDoHURL reports whether s is an https URL with a host and no user
-// info, which is what a DoH resolver needs.
-func isValidDoHURL(s string) bool {
-	u, err := url.Parse(s)
-	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil
-}
-
-// finalError marks an error that no retry can change, such as an answer
-// that the name does not exist. retryWithBackoff returns the wrapped error
-// at once.
-type finalError struct{ err error }
-
-func (e *finalError) Error() string { return e.err.Error() }
-func (e *finalError) Unwrap() error { return e.err }
-
-// retryWithBackoff calls f up to maxAttempts times until it succeeds or
-// returns a finalError. Between attempts it waits half the backoff plus a
-// random share of it, and the backoff doubles up to maxBackoff. It returns
-// how many times it called f.
-func retryWithBackoff[T any](
-	ctx context.Context,
-	f func(attempt int) (T, error),
-	maxAttempts int,
-	initialBackoff time.Duration,
-	maxBackoff time.Duration,
-) (val T, attempts int, err error) {
-	if maxAttempts < 1 {
-		return val, 0, errors.New("maxAttempts must be positive")
-	}
-
-	backoff := min(initialBackoff, maxBackoff)
-
-	for attempt := range maxAttempts {
-		if cErr := ctx.Err(); cErr != nil {
-			return val, attempts, cErr
-		}
-
-		attempts++
-		val, err = f(attempt)
-		if err == nil {
-			return val, attempts, nil
-		}
-		if final := (*finalError)(nil); errors.As(err, &final) {
-			return val, attempts, final.err
-		}
-
-		if attempt == maxAttempts-1 {
-			break
-		}
-
-		//nolint:gosec // jitter timing here is non-security critical
-		jitter := time.Duration(rand.N(int(backoff)))
-		wait := backoff/2 + jitter
-
-		select {
-		case <-ctx.Done():
-			return val, attempts, ctx.Err()
-		case <-time.After(wait):
-		}
-
-		backoff = min(backoff*2, maxBackoff)
-	}
-
-	return val, attempts, err
-}
-
-// isValidDomain reports whether domain is a hostname with at least two
-// labels. Each label is 1 to 63 letters, digits, hyphens, or underscores,
-// and does not start or end with a hyphen. Underscores appear in real
-// names such as _dmarc.example.com.
-func isValidDomain(domain string) bool {
-	if len(domain) > 253 {
-		return false
-	}
-	labels := strings.Split(domain, ".")
-	if len(labels) < 2 {
-		return false
-	}
-	for _, label := range labels {
-		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return false
-		}
-		if strings.ContainsFunc(label, func(c rune) bool { return !isLabelChar(c) }) {
-			return false
-		}
-	}
-	return true
-}
-
-func isLabelChar(c rune) bool {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_'
-}
-
-// isValidServerAddr reports whether addr is an IP literal without a port.
-// Resolver files and the Web UI API both accept only such addresses. An
-// IPv6 address may carry a zone, as in fe80::1%eth0, to reach a link-local
-// resolver such as a home router.
-func isValidServerAddr(addr string) bool {
-	_, err := netip.ParseAddr(addr)
-	return err == nil
-}
-
-func slogErr(err error) slog.Attr {
-	if err != nil {
-		return slog.String("err", err.Error())
-	}
-	return slog.String("err", "<nil>")
-}
-
-func printResultsJSON(valid, failed []BenchmarkResult) {
+func printResultsJSON(valid, failed []bench.Result) {
 	type Summary struct {
-		TotalResolvers   int              `json:"total_resolvers"`
-		SuccessResolvers int              `json:"success_resolvers"`
-		FailedResolvers  int              `json:"failed_resolvers"`
-		OverallSuccess   float64          `json:"overall_success_rate"`
-		Fastest          *BenchmarkResult `json:"fastest_resolver,omitempty"`
-		Slowest          *BenchmarkResult `json:"slowest_resolver,omitempty"`
+		TotalResolvers   int           `json:"total_resolvers"`
+		SuccessResolvers int           `json:"success_resolvers"`
+		FailedResolvers  int           `json:"failed_resolvers"`
+		OverallSuccess   float64       `json:"overall_success_rate"`
+		Fastest          *bench.Result `json:"fastest_resolver,omitempty"`
+		Slowest          *bench.Result `json:"slowest_resolver,omitempty"`
 	}
 
-	all := append([]BenchmarkResult{}, valid...)
+	all := append([]bench.Result{}, valid...)
 	all = append(all, failed...)
 
-	var fastest, slowest *BenchmarkResult
+	var fastest, slowest *bench.Result
 	if len(valid) > 0 {
 		fastest = &valid[0]
 		slowest = &valid[len(valid)-1]
@@ -293,16 +222,16 @@ func printResultsJSON(valid, failed []BenchmarkResult) {
 
 	// Encode an empty group as [] rather than null.
 	if valid == nil {
-		valid = []BenchmarkResult{}
+		valid = []bench.Result{}
 	}
 	if failed == nil {
-		failed = []BenchmarkResult{}
+		failed = []bench.Result{}
 	}
 
 	output := struct {
-		Summary  Summary           `json:"summary"`
-		Results  []BenchmarkResult `json:"results"`
-		Failures []BenchmarkResult `json:"failures"`
+		Summary  Summary        `json:"summary"`
+		Results  []bench.Result `json:"results"`
+		Failures []bench.Result `json:"failures"`
 	}{
 		Summary:  summary,
 		Results:  valid,

@@ -1,9 +1,10 @@
-package main
+package dnsclient
 
 import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -61,24 +62,56 @@ type Resolver struct {
 	sem        chan struct{}
 }
 
-// NewResolver queries server with plain DNS on port 53, DNS over TLS on
-// port 853, DNS over HTTPS on port 443, or DNS over QUIC on UDP port 853,
-// depending on which of the server's fields is set.
-func NewResolver(server DNSServer, concurrency int) *Resolver {
+// Option changes how New reaches a server. Tests use them to point a
+// resolver at a local fake server.
+type Option func(*options)
+
+type options struct {
+	hostPort string
+	roots    *x509.CertPool
+}
+
+// WithHostPort sends the queries to hostPort instead of the server's
+// address on its transport's standard port.
+func WithHostPort(hostPort string) Option {
+	return func(o *options) { o.hostPort = hostPort }
+}
+
+// WithRootCAs verifies TLS certificates against roots instead of the
+// system's pool.
+func WithRootCAs(roots *x509.CertPool) Option {
+	return func(o *options) { o.roots = roots }
+}
+
+// New queries server with plain DNS on port 53, DNS over TLS on port 853,
+// DNS over HTTPS on port 443, or DNS over QUIC on UDP port 853, depending
+// on which of the server's fields is set. At most concurrency queries are
+// in flight at once.
+func New(server Server, concurrency int, opts ...Option) *Resolver {
+	var o options
+	for _, opt := range opts {
+		opt(&o)
+	}
+	hostPort := func(port string) string {
+		if o.hostPort != "" {
+			return o.hostPort
+		}
+		return net.JoinHostPort(server.Addr, port)
+	}
 	switch {
 	case server.DoQName != "":
-		tlsConfig := &tls.Config{ServerName: server.DoQName, MinVersion: tls.VersionTLS13, NextProtos: []string{"doq"}}
-		return newDoQResolver(server.Addr, net.JoinHostPort(server.Addr, "853"), tlsConfig, concurrency)
+		tlsConfig := &tls.Config{ServerName: server.DoQName, RootCAs: o.roots, MinVersion: tls.VersionTLS13, NextProtos: []string{"doq"}}
+		return newDoQResolver(server.Addr, hostPort("853"), tlsConfig, concurrency)
 	case server.DoHURL != "":
-		// isValidDoHURL has checked the URL, so the error cannot happen.
-		u, _ := url.Parse(server.DoHURL) //nolint:errcheck // validated by isValidDoHURL
-		tlsConfig := &tls.Config{ServerName: u.Hostname(), MinVersion: tls.VersionTLS12}
-		return newDoHResolver(server.Addr, server.DoHURL, net.JoinHostPort(server.Addr, "443"), tlsConfig, concurrency)
+		// Validate has checked the URL, so the error cannot happen.
+		u, _ := url.Parse(server.DoHURL) //nolint:errcheck // checked by Validate
+		tlsConfig := &tls.Config{ServerName: u.Hostname(), RootCAs: o.roots, MinVersion: tls.VersionTLS12}
+		return newDoHResolver(server.Addr, server.DoHURL, hostPort("443"), tlsConfig, concurrency)
 	case server.TLSName != "":
-		tlsConfig := &tls.Config{ServerName: server.TLSName, MinVersion: tls.VersionTLS12}
-		return newResolver(server.Addr, net.JoinHostPort(server.Addr, "853"), tlsConfig, concurrency)
+		tlsConfig := &tls.Config{ServerName: server.TLSName, RootCAs: o.roots, MinVersion: tls.VersionTLS12}
+		return newResolver(server.Addr, hostPort("853"), tlsConfig, concurrency)
 	default:
-		return newResolver(server.Addr, net.JoinHostPort(server.Addr, "53"), nil, concurrency)
+		return newResolver(server.Addr, hostPort("53"), nil, concurrency)
 	}
 }
 
@@ -171,17 +204,17 @@ func precheckTLS(ctx context.Context, dialer *tls.Dialer, hostPort string) error
 	if err == nil {
 		// The handshake worked. A failed close changes nothing for the lookups.
 		if cerr := conn.Close(); cerr != nil {
-			slog.LogAttrs(ctx, slog.LevelDebug, "Failed to close precheck connection", slogErr(cerr))
+			slog.LogAttrs(ctx, slog.LevelDebug, "Failed to close precheck connection", slog.Any("err", cerr))
 		}
 	}
 	return nil
 }
 
-// QueryDNS looks up the A records of domain. Each attempt sends one query
+// Query looks up the A records of domain. Each attempt sends one query
 // and is bounded by timeout. A failed attempt is retried up to retries
 // times, after a short wait, unless the answer was final, such as NXDOMAIN.
 // The returned Lookup counts the attempts made, even when err is not nil.
-func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retries int) (Lookup, error) {
+func (r *Resolver) Query(ctx context.Context, domain string, timeout time.Duration, retries int) (Lookup, error) {
 	if domain == "" {
 		return Lookup{}, errors.New("empty domain name")
 	}
@@ -221,7 +254,7 @@ func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Dur
 			err = checkAnswer(answer, id, &name)
 		}
 		if err != nil {
-			log.LogAttrs(ctx, slog.LevelDebug, "Failed query", slogErr(err))
+			log.LogAttrs(ctx, slog.LevelDebug, "Failed query", slog.Any("err", err))
 			if attemptCtx.Err() != nil && ctx.Err() == nil {
 				return took, fmt.Errorf("%w: %w", context.DeadlineExceeded, err)
 			}
@@ -275,9 +308,9 @@ var errNoSuchHost = errors.New("no such host")
 // errNoARecord is the error for an answer without any A record.
 var errNoARecord = errors.New("no A record in the answer")
 
-// isFinalAnswer reports whether err is an answer about the name, such as
+// IsFinalAnswer reports whether err is an answer about the name, such as
 // NXDOMAIN, rather than a failure of the resolver.
-func isFinalAnswer(err error) bool {
+func IsFinalAnswer(err error) bool {
 	return errors.Is(err, errNoSuchHost) || errors.Is(err, errNoARecord)
 }
 
@@ -338,12 +371,12 @@ func truncated(answer []byte) bool {
 func withContext(ctx context.Context, conn net.Conn) (stop func() bool) {
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
-			slog.Debug("Failed to set a connection deadline", slogErr(err))
+			slog.Debug("Failed to set a connection deadline", slog.Any("err", err))
 		}
 	}
 	return context.AfterFunc(ctx, func() {
 		if err := conn.SetDeadline(time.Now()); err != nil {
-			slog.Debug("Failed to cut a connection short", slogErr(err))
+			slog.Debug("Failed to cut a connection short", slog.Any("err", err))
 		}
 	})
 }
@@ -486,7 +519,7 @@ func streamExchange(conn net.Conn, query []byte) ([]byte, error) {
 
 func closeConn(c io.Closer) {
 	if err := c.Close(); err != nil {
-		slog.Debug("Failed to close a connection", slogErr(err))
+		slog.Debug("Failed to close a connection", slog.Any("err", err))
 	}
 }
 

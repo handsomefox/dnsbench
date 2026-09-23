@@ -1,4 +1,4 @@
-package main
+package web
 
 import (
 	"encoding/json"
@@ -123,11 +123,11 @@ func (h *SSEHub) Handle(w http.ResponseWriter, r *http.Request) {
 func writeEvent(w http.ResponseWriter, flusher http.Flusher, evt SSEEvent) {
 	b, err := json.Marshal(evt)
 	if err != nil {
-		slog.Error("failed to encode SSE event", slogErr(err))
+		slog.Error("failed to encode SSE event", slog.Any("err", err))
 		return
 	}
 	if _, err := fmt.Fprintf(w, "data: %s\n\n", b); err != nil {
-		slog.Warn("failed to write SSE event", slogErr(err))
+		slog.Warn("failed to write SSE event", slog.Any("err", err))
 		return
 	}
 	flusher.Flush()

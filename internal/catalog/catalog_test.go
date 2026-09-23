@@ -1,4 +1,4 @@
-package main
+package catalog
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/handsomefox/dnsbench/internal/dnsclient"
 )
 
 func TestBuiltinServers(t *testing.T) {
@@ -38,25 +40,25 @@ func TestBuiltinServers(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		filter builtinFilter
+		filter Filter
 		want   int
 	}{
-		{name: "default", filter: builtinFilter{}, want: plain4},
-		{name: "IPv6", filter: builtinFilter{family: FamilyIPv6}, want: plain6},
-		{name: "both families", filter: builtinFilter{family: FamilyAll}, want: plain4 + plain6},
-		{name: "major", filter: builtinFilter{onlyMajor: true}, want: majorPlain4},
-		{name: "first address", filter: builtinFilter{primaryOnly: true}, want: primaryPlain4},
-		{name: "DoT", filter: builtinFilter{transport: TransportDoT}, want: dot4},
-		{name: "DoH over IPv6", filter: builtinFilter{family: FamilyIPv6, transport: TransportDoH}, want: doh6},
-		{name: "DoQ", filter: builtinFilter{transport: TransportDoQ}, want: doq4},
-		{name: "everything", filter: builtinFilter{family: FamilyAll, transport: TransportAll}, want: plain4 + plain6 + dot4 + dot6 + doh4 + doh6 + doq4 + doq6},
+		{name: "default", filter: Filter{}, want: plain4},
+		{name: "IPv6", filter: Filter{Family: FamilyIPv6}, want: plain6},
+		{name: "both families", filter: Filter{Family: FamilyAll}, want: plain4 + plain6},
+		{name: "major", filter: Filter{Major: true}, want: majorPlain4},
+		{name: "first address", filter: Filter{Primary: true}, want: primaryPlain4},
+		{name: "DoT", filter: Filter{Transport: TransportDoT}, want: dot4},
+		{name: "DoH over IPv6", filter: Filter{Family: FamilyIPv6, Transport: TransportDoH}, want: doh6},
+		{name: "DoQ", filter: Filter{Transport: TransportDoQ}, want: doq4},
+		{name: "everything", filter: Filter{Family: FamilyAll, Transport: TransportAll}, want: plain4 + plain6 + dot4 + dot6 + doh4 + doh6 + doq4 + doq6},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := builtinServers(tt.filter)
+			got := Servers(tt.filter)
 			if len(got) != tt.want {
-				t.Fatalf("builtinServers(%+v) returned %d resolvers, want %d", tt.filter, len(got), tt.want)
+				t.Fatalf("Servers(%+v) returned %d resolvers, want %d", tt.filter, len(got), tt.want)
 			}
 			names := make(map[string]bool)
 			for _, s := range got {
@@ -81,20 +83,20 @@ func TestBuiltinServers(t *testing.T) {
 				if (s.DoQName != "") != strings.Contains(s.Name, "-DoQ-") {
 					t.Errorf("%s has DoQ name %q: the -DoQ- name and the transport disagree", s.Name, s.DoQName)
 				}
-				if s.DoHURL != "" && !isValidDoHURL(s.DoHURL) {
+				if s.DoHURL != "" && !dnsclient.IsValidDoHURL(s.DoHURL) {
 					t.Errorf("%s has invalid DoH URL %q", s.Name, s.DoHURL)
 				}
-				if tt.filter.family == FamilyIPv4 && addr.Is6() || tt.filter.family == FamilyIPv6 && addr.Is4() {
-					t.Errorf("%s (%s) does not belong to family %s", s.Name, s.Addr, tt.filter.family)
+				if tt.filter.Family == FamilyIPv4 && addr.Is6() || tt.filter.Family == FamilyIPv6 && addr.Is4() {
+					t.Errorf("%s (%s) does not belong to family %s", s.Name, s.Addr, tt.filter.Family)
 				}
 				plain := s.TLSName == "" && s.DoHURL == "" && s.DoQName == ""
-				if tt.filter.transport == TransportPlain && !plain ||
-					tt.filter.transport == TransportDoT && s.TLSName == "" ||
-					tt.filter.transport == TransportDoH && s.DoHURL == "" ||
-					tt.filter.transport == TransportDoQ && s.DoQName == "" {
-					t.Errorf("%s does not belong to transport %s", s.Name, tt.filter.transport)
+				if tt.filter.Transport == TransportPlain && !plain ||
+					tt.filter.Transport == TransportDoT && s.TLSName == "" ||
+					tt.filter.Transport == TransportDoH && s.DoHURL == "" ||
+					tt.filter.Transport == TransportDoQ && s.DoQName == "" {
+					t.Errorf("%s does not belong to transport %s", s.Name, tt.filter.Transport)
 				}
-				if tt.filter.primaryOnly && !strings.HasSuffix(s.Name, "-1") {
+				if tt.filter.Primary && !strings.HasSuffix(s.Name, "-1") {
 					t.Errorf("%s is not a first address", s.Name)
 				}
 			}
@@ -102,7 +104,7 @@ func TestBuiltinServers(t *testing.T) {
 	}
 
 	// Existing reports and scripts refer to these names.
-	first := builtinServers(builtinFilter{})[0]
+	first := Servers(Filter{})[0]
 	if first.Name != "Cloudflare-1" || first.Addr != "1.1.1.1" || first.TLSName != "" {
 		t.Errorf("first default resolver = %+v, want plain Cloudflare-1 at 1.1.1.1", first)
 	}
@@ -116,15 +118,15 @@ func TestBuiltinServersAnswer(t *testing.T) {
 		t.Skip("set DNSBENCH_LIVE=1 to query the built-in resolvers")
 	}
 
-	servers := builtinServers(builtinFilter{family: FamilyAll, transport: TransportAll})
+	servers := Servers(Filter{Family: FamilyAll, Transport: TransportAll})
 	var wg sync.WaitGroup
 	for _, server := range servers {
 		wg.Go(func() {
-			r := NewResolver(server, 1)
+			r := dnsclient.New(server, 1)
 			var err error
 			for range 3 {
-				var lookup Lookup
-				lookup, err = r.QueryDNS(context.Background(), "wikipedia.org", 4*time.Second, 0)
+				var lookup dnsclient.Lookup
+				lookup, err = r.Query(context.Background(), "wikipedia.org", 4*time.Second, 0)
 				if err == nil {
 					t.Logf("%-32s %-24s %v", server.Name, server.Addr, lookup.Latency.Round(time.Millisecond))
 					return
@@ -140,13 +142,13 @@ func TestLoadServers(t *testing.T) {
 	tests := []struct {
 		name    string
 		file    string
-		want    []DNSServer
+		want    []dnsclient.Server
 		wantErr string
 	}{
 		{
 			name: "plain, DoT, and IPv6",
 			file: "# comment\nCF;1.1.1.1\n\nCF-DoT; 1.1.1.1 ; cloudflare-dns.com\nCF-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query\nQ9-DoQ;9.9.9.9;quic://dns.quad9.net\nRouter;fe80::1%eth0\n",
-			want: []DNSServer{
+			want: []dnsclient.Server{
 				{Name: "CF", Addr: "1.1.1.1"},
 				{Name: "CF-DoT", Addr: "1.1.1.1", TLSName: "cloudflare-dns.com"},
 				{Name: "CF-DoH", Addr: "1.1.1.1", DoHURL: "https://cloudflare-dns.com/dns-query"},
@@ -168,18 +170,18 @@ func TestLoadServers(t *testing.T) {
 				t.Fatal(err)
 			}
 			// The filter must not apply to a file.
-			got, err := loadServers(path, builtinFilter{onlyMajor: true, family: FamilyIPv6, transport: TransportDoT})
+			got, err := LoadServers(path, Filter{Major: true, Family: FamilyIPv6, Transport: TransportDoT})
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("loadServers() error = %v, want it to contain %q", err, tt.wantErr)
+					t.Fatalf("LoadServers() error = %v, want it to contain %q", err, tt.wantErr)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("loadServers() error = %v", err)
+				t.Fatalf("LoadServers() error = %v", err)
 			}
 			if len(got) != len(tt.want) {
-				t.Fatalf("loadServers() = %+v, want %+v", got, tt.want)
+				t.Fatalf("LoadServers() = %+v, want %+v", got, tt.want)
 			}
 			for i := range got {
 				if got[i] != tt.want[i] {
@@ -191,83 +193,41 @@ func TestLoadServers(t *testing.T) {
 }
 
 func TestParseFamily(t *testing.T) {
-	for in, want := range map[string]AddrFamily{"ipv4": FamilyIPv4, "IPv6": FamilyIPv6, "all": FamilyAll} {
-		got, err := parseFamily(in)
+	for in, want := range map[string]Family{"ipv4": FamilyIPv4, "IPv6": FamilyIPv6, "all": FamilyAll} {
+		got, err := ParseFamily(in)
 		if err != nil || got != want {
-			t.Errorf("parseFamily(%q) = %v, %v, want %v", in, got, err, want)
+			t.Errorf("ParseFamily(%q) = %v, %v, want %v", in, got, err, want)
 		}
 		if got.String() != strings.ToLower(in) {
-			t.Errorf("AddrFamily(%d).String() = %q, want %q", got, got.String(), strings.ToLower(in))
+			t.Errorf("Family(%d).String() = %q, want %q", got, got.String(), strings.ToLower(in))
 		}
 	}
-	if _, err := parseFamily("6"); err == nil {
-		t.Error(`parseFamily("6") returned no error`)
+	if _, err := ParseFamily("6"); err == nil {
+		t.Error(`ParseFamily("6") returned no error`)
 	}
 }
 
 func TestParseTransport(t *testing.T) {
 	for in, want := range map[string]Transport{"plain": TransportPlain, "DoT": TransportDoT, "DoH": TransportDoH, "DoQ": TransportDoQ, "all": TransportAll} {
-		got, err := parseTransport(in)
+		got, err := ParseTransport(in)
 		if err != nil || got != want {
-			t.Errorf("parseTransport(%q) = %v, %v, want %v", in, got, err, want)
+			t.Errorf("ParseTransport(%q) = %v, %v, want %v", in, got, err, want)
 		}
 		if got.String() != strings.ToLower(in) {
 			t.Errorf("Transport(%d).String() = %q, want %q", got, got.String(), strings.ToLower(in))
 		}
 	}
-	if _, err := parseTransport("http"); err == nil {
-		t.Error(`parseTransport("http") returned no error`)
-	}
-}
-
-func TestIsValidServerAddr(t *testing.T) {
-	tests := map[string]bool{
-		"1.1.1.1":                   true,
-		"2606:4700:4700::1111":      true,
-		"fe80::1%eth0":              true,
-		"1.1.1.1%eth0":              false,
-		"1.1.1.1:53":                false,
-		"[2606:4700:4700::1111]:53": false,
-		"dns.google":                false,
-		"":                          false,
-	}
-	for addr, want := range tests {
-		if got := isValidServerAddr(addr); got != want {
-			t.Errorf("isValidServerAddr(%q) = %v, want %v", addr, got, want)
-		}
-	}
-}
-
-func TestIsValidDomain(t *testing.T) {
-	tests := map[string]bool{
-		"example.com":                         true,
-		"a.b.c.example.co.uk":                 true,
-		"_dmarc.example.com":                  true,
-		"xn--bcher-kva.example":               true,
-		"example":                             false,
-		".example.com":                        false,
-		"example.com.":                        false,
-		"exa mple.com":                        false,
-		"-bad.example.com":                    false,
-		"bad-.example.com":                    false,
-		"http://cloudflare-dns.com/dns-query": false,
-		"dns.google:853":                      false,
-		strings.Repeat("a", 64) + ".com":      false,
-		"":                                    false,
-	}
-	for domain, want := range tests {
-		if got := isValidDomain(domain); got != want {
-			t.Errorf("isValidDomain(%q) = %v, want %v", domain, got, want)
-		}
+	if _, err := ParseTransport("http"); err == nil {
+		t.Error(`ParseTransport("http") returned no error`)
 	}
 }
 
 // The dashboard filters the catalog, and the CLI filters through
-// builtinServers. Both must agree with the catalog's own fields.
+// Servers. Both must agree with the catalog's own fields.
 func TestBuiltinCatalog(t *testing.T) {
 	categories := map[string]bool{"Global": true, "Filtering": true, "Privacy": true, "Regional": true}
 	names := map[string]bool{}
-	for _, e := range builtinCatalog() {
+	for _, e := range All() {
 		if !categories[e.Category] {
 			t.Errorf("%s has unknown category %q", e.Name, e.Category)
 		}

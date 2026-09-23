@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/handsomefox/dnsbench/internal/web"
 	"github.com/phsym/console-slog"
 )
 
@@ -20,8 +21,8 @@ func main() {
 	if config.ServeUI {
 		ctx, cancel := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 
-		if err := serveDashboard(ctx, config); err != nil {
-			slog.ErrorContext(ctx, "UI server failed", slogErr(err))
+		if err := web.Serve(ctx, &web.Options{Listen: config.ListenAddr, Bench: config.benchOptions(), Filter: config.filter()}); err != nil {
+			slog.ErrorContext(ctx, "UI server failed", slog.Any("err", err))
 			cancel()
 			os.Exit(1)
 		}
@@ -31,7 +32,7 @@ func main() {
 
 	slog.LogAttrs(ctx, slog.LevelDebug, "Starting", slog.Any("config", fmt.Sprintf("%#v", config)))
 	if err := run(ctx, config); err != nil {
-		slog.ErrorContext(ctx, "Benchmark failed", slogErr(err))
+		slog.ErrorContext(ctx, "Benchmark failed", slog.Any("err", err))
 		os.Exit(1)
 	}
 }

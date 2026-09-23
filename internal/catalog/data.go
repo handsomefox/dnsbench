@@ -1,4 +1,4 @@
-package main
+package catalog
 
 // provider is one DNS service in the built-in list. Every address becomes
 // one resolver, named after the provider and its position in its list:
@@ -9,7 +9,7 @@ package main
 // Every address and transport listed here answered the live test below when
 // it was added. To check them again, run:
 //
-//	DNSBENCH_LIVE=1 go test -run TestBuiltinServersAnswer -v
+//	DNSBENCH_LIVE=1 go test ./internal/catalog -run TestBuiltinServersAnswer -v
 type provider struct {
 	name          string
 	category      string // Global, Filtering, Privacy, or Regional, for the dashboard
@@ -55,7 +55,7 @@ var providers = []provider{
 }
 
 var (
-	defaultSites = []string{
+	DefaultDomains = []string{
 		// Search engines
 		"google.com", "bing.com", "duckduckgo.com", "yahoo.com",
 
