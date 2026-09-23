@@ -26,6 +26,7 @@ type Config struct {
 	Repeats            int
 	OnlyMajorResolvers bool
 	Family             AddrFamily
+	Transport          Transport
 	MaxConcurrency     int
 
 	// Output and logging
@@ -94,6 +95,39 @@ func parseFamily(s string) (AddrFamily, error) {
 	}
 }
 
+// Transport selects built-in resolvers by how they are queried.
+type Transport int
+
+const (
+	TransportPlain Transport = iota // DNS over UDP port 53, TCP on truncation
+	TransportDoT                    // DNS over TLS on TCP port 853
+	TransportAll
+)
+
+func (t Transport) String() string {
+	switch t {
+	case TransportDoT:
+		return "dot"
+	case TransportAll:
+		return "all"
+	default:
+		return "plain"
+	}
+}
+
+func parseTransport(s string) (Transport, error) {
+	switch strings.ToLower(s) {
+	case "plain":
+		return TransportPlain, nil
+	case "dot":
+		return TransportDoT, nil
+	case "all":
+		return TransportAll, nil
+	default:
+		return TransportPlain, fmt.Errorf("invalid transport %q: want plain, dot, or all", s)
+	}
+}
+
 type LogType int
 
 const (
@@ -130,7 +164,11 @@ func run(ctx context.Context, config *Config) error {
 	slog.LogAttrs(ctx, slog.LevelInfo, "Loaded domains", slog.Int("count", len(domains)))
 
 	// Load DNS servers
-	servers, err := loadServers(config.ResolversFile, config.OnlyMajorResolvers, config.Family)
+	servers, err := loadServers(config.ResolversFile, builtinFilter{
+		onlyMajor: config.OnlyMajorResolvers,
+		family:    config.Family,
+		transport: config.Transport,
+	})
 	if err != nil {
 		return fmt.Errorf("loading servers: %w", err)
 	}
@@ -156,6 +194,7 @@ func parseFlags() *Config {
 		outputType string
 		logType    string
 		family     string
+		transport  string
 		warmupRuns int
 		serveUI    bool
 		listenAddr string
@@ -170,6 +209,7 @@ func parseFlags() *Config {
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
 	flag.StringVar(&family, "family", "ipv4", "Address family of the built-in resolvers: ipv4, ipv6, or all")
+	flag.StringVar(&transport, "proto", "plain", "Transport of the built-in resolvers: plain, dot (DNS over TLS), or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Warmup lookups to run before each measured lookup")
 	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
 	flag.StringVar(&listenAddr, "listen", ":8080", "Address for the Web UI HTTP server (used with -ui)")
@@ -200,6 +240,9 @@ Examples:
 
   # Benchmark with custom domain list
   dnsbench -s mydomains.txt
+
+  # Compare plain DNS with DNS over TLS on IPv4 and IPv6
+  dnsbench -major -proto all -family all
 `)
 	}
 
@@ -242,6 +285,13 @@ Examples:
 		os.Exit(1)
 	}
 	config.Family = fam
+
+	tr, err := parseTransport(transport)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	config.Transport = tr
 
 	config.WarmupRuns = warmupRuns
 	config.ServeUI = serveUI
@@ -314,22 +364,49 @@ func loadDomains(sitesFile string) ([]string, error) {
 	return domains, nil
 }
 
-// builtinServers lists the built-in resolvers that match onlyMajor and
-// family, in the order of the providers table.
-func builtinServers(onlyMajor bool, family AddrFamily) []DNSServer {
+// builtinFilter selects from the built-in resolvers.
+type builtinFilter struct {
+	onlyMajor bool
+	family    AddrFamily
+	transport Transport
+}
+
+// builtinServers lists the built-in resolvers that match f, in the order
+// of the providers table. For each provider, plain DNS comes before DoT and
+// IPv4 before IPv6. The names follow the pattern in the provider comment.
+func builtinServers(f builtinFilter) []DNSServer {
 	var servers []DNSServer
+	add := func(p provider, addrs []string, v6, dot bool) {
+		for i, addr := range addrs {
+			name := p.name
+			s := DNSServer{Addr: addr}
+			if dot {
+				name += "-DoT"
+				s.TLSName = p.tlsName
+			}
+			if v6 {
+				name += "-v6"
+			}
+			s.Name = fmt.Sprintf("%s-%d", name, i+1)
+			servers = append(servers, s)
+		}
+	}
 	for _, p := range providers {
-		if onlyMajor && !p.major {
+		if f.onlyMajor && !p.major {
 			continue
 		}
-		if family != FamilyIPv6 {
-			for i, addr := range p.ipv4 {
-				servers = append(servers, DNSServer{Name: fmt.Sprintf("%s-%d", p.name, i+1), Addr: addr})
+		for _, dot := range []bool{false, true} {
+			switch {
+			case !dot && (p.dotOnly || f.transport == TransportDoT):
+				continue
+			case dot && (p.tlsName == "" || f.transport == TransportPlain):
+				continue
 			}
-		}
-		if family != FamilyIPv4 {
-			for i, addr := range p.ipv6 {
-				servers = append(servers, DNSServer{Name: fmt.Sprintf("%s-v6-%d", p.name, i+1), Addr: addr})
+			if f.family != FamilyIPv6 {
+				add(p, p.ipv4, false, dot)
+			}
+			if f.family != FamilyIPv4 {
+				add(p, p.ipv6, true, dot)
 			}
 		}
 	}
@@ -337,12 +414,14 @@ func builtinServers(onlyMajor bool, family AddrFamily) []DNSServer {
 }
 
 // loadServers loads DNS servers from a file or uses built-in resolvers.
-// Format: name;ip per line. Comments start with #.
-// If resolversFile is empty, the built-in resolvers matching onlyMajor and
-// family are used. A file is used as written: the filters do not apply.
-func loadServers(resolversFile string, onlyMajor bool, family AddrFamily) ([]DNSServer, error) {
+// Format: name;ip or name;ip;tls-name per line. Comments start with #.
+// A third field makes the resolver DNS over TLS, with tls-name as the name
+// its certificate must match.
+// If resolversFile is empty, the built-in resolvers matching the filter are
+// used. A file is used as written: the filter does not apply.
+func loadServers(resolversFile string, filter builtinFilter) ([]DNSServer, error) {
 	if resolversFile == "" {
-		return builtinServers(onlyMajor, family), nil
+		return builtinServers(filter), nil
 	}
 
 	servers := make([]DNSServer, 0)
@@ -370,8 +449,8 @@ func loadServers(resolversFile string, onlyMajor bool, family AddrFamily) ([]DNS
 		}
 
 		parts := strings.Split(line, ";")
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid format at line %d: expected 'name;ip'", lineNum)
+		if len(parts) != 2 && len(parts) != 3 {
+			return nil, fmt.Errorf("invalid format at line %d: expected 'name;ip' or 'name;ip;tls-name'", lineNum)
 		}
 
 		name := strings.TrimSpace(parts[0])
@@ -385,7 +464,15 @@ func loadServers(resolversFile string, onlyMajor bool, family AddrFamily) ([]DNS
 			return nil, fmt.Errorf("invalid IP address at line %d: %s", lineNum, addr)
 		}
 
-		servers = append(servers, DNSServer{Name: name, Addr: addr})
+		server := DNSServer{Name: name, Addr: addr}
+		if len(parts) == 3 {
+			server.TLSName = strings.TrimSpace(parts[2])
+			if !isValidDomain(server.TLSName) {
+				return nil, fmt.Errorf("invalid TLS name at line %d: %q", lineNum, server.TLSName)
+			}
+		}
+
+		servers = append(servers, server)
 	}
 
 	if err := scanner.Err(); err != nil {

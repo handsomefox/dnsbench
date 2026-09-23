@@ -34,6 +34,24 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 			req:  runRequest{Options: runOptions{Family: "ipv6"}},
 		},
 		{
+			name: "DoT built-ins",
+			req:  runRequest{Options: runOptions{Transport: "dot"}},
+		},
+		{
+			name: "custom DoT resolver",
+			req:  runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", TLSName: "dns.example"}}},
+		},
+		{
+			name:    "bad TLS name",
+			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "192.0.2.1", TLSName: "not a name"}}},
+			wantErr: "invalid TLS name",
+		},
+		{
+			name:    "unknown transport",
+			req:     runRequest{Options: runOptions{Transport: "doh"}},
+			wantErr: "invalid transport",
+		},
+		{
 			name:    "unknown family",
 			req:     runRequest{Options: runOptions{Family: "ipv5"}},
 			wantErr: "invalid address family",
@@ -160,13 +178,19 @@ func TestUIServer_BuiltinsDataIsland(t *testing.T) {
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("data island is not valid JSON: %v\n%s", err, raw)
 	}
-	// app.js builds these keys from the form, so they must exist verbatim.
-	for _, key := range []string{"false/ipv4", "false/ipv6", "false/all", "true/ipv4", "true/ipv6", "true/all"} {
-		if len(got[key]) == 0 {
-			t.Errorf("data island has no resolvers under %q", key)
+	// app.js builds these keys from the form values, so they must exist
+	// verbatim: major/family/transport.
+	for _, major := range []string{"false", "true"} {
+		for _, family := range []string{"ipv4", "ipv6", "all"} {
+			for _, transport := range []string{"plain", "dot", "all"} {
+				key := major + "/" + family + "/" + transport
+				if len(got[key]) == 0 {
+					t.Errorf("data island has no resolvers under %q", key)
+				}
+			}
 		}
 	}
-	if len(got) != 6 {
-		t.Errorf("data island has %d keys, want 6", len(got))
+	if len(got) != 18 {
+		t.Errorf("data island has %d keys, want 18", len(got))
 	}
 }

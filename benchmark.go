@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"math"
 	"sort"
@@ -14,10 +13,13 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// DNSServer represents a resolver to be benchmarked
+// DNSServer represents a resolver to be benchmarked. A resolver with a
+// TLSName is queried with DNS over TLS on port 853, and TLSName is the name
+// its certificate must match. Without one it gets plain DNS on port 53.
 type DNSServer struct {
-	Name string `json:"name"`
-	Addr string `json:"addr"`
+	Name    string `json:"name"`
+	Addr    string `json:"addr"`
+	TLSName string `json:"tlsName,omitempty"`
 }
 
 // BenchmarkResult contains the results for a single resolver
@@ -146,14 +148,13 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	}
 
 	total := len(domains) * config.Repeats
-	resolver := NewResolver(server.Addr, config.MaxConcurrency)
+	resolver := NewResolver(server, config.MaxConcurrency)
 
-	// Without a route, every attempt fails at once and the retries only add
-	// backoff. Fail every planned lookup now, so the reporter still sees one
-	// result per lookup.
-	if err := resolver.CheckRoute(ctx); err != nil {
-		err = fmt.Errorf("no route to resolver %s: %w", server.Addr, err)
-		slog.LogAttrs(ctx, slog.LevelWarn, "Skipping unreachable resolver",
+	// Without a route or with a bad certificate, every attempt fails and the
+	// retries only add backoff. Fail every planned lookup now, so the
+	// reporter still sees one result per lookup.
+	if err := resolver.Precheck(ctx); err != nil {
+		slog.LogAttrs(ctx, slog.LevelWarn, "Skipping resolver that cannot answer",
 			slog.String("name", server.Name),
 			slogErr(err),
 		)

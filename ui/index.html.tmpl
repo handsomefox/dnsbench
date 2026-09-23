@@ -45,12 +45,19 @@
 						<option value="all" {{if eq .Options.Family "all"}}selected{{end}}>IPv4 and IPv6</option>
 					</select>
 				</label>
+				<label class="inline">Transport
+					<select id="transport">
+						<option value="plain" {{if eq .Options.Transport "plain"}}selected{{end}}>Plain DNS</option>
+						<option value="dot" {{if eq .Options.Transport "dot"}}selected{{end}}>DNS over TLS</option>
+						<option value="all" {{if eq .Options.Transport "all"}}selected{{end}}>Both</option>
+					</select>
+				</label>
 				<ul id="builtin-list" class="chips"></ul>
 			</div>
 
 			<div id="custom-options" hidden>
-				<textarea id="custom-resolvers" rows="6" spellcheck="false" placeholder="Cloudflare;1.1.1.1"></textarea>
-				<p class="hint">One <code>name;ip</code> per line. The address is an IPv4 or IPv6 address with no port. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
+				<textarea id="custom-resolvers" rows="6" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com"></textarea>
+				<p class="hint">One <code>name;ip</code> per line for plain DNS, or <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on the resolver's certificate. The address is an IPv4 or IPv6 address with no port. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
 			</div>
 			<p class="hint"><span id="resolver-count">0</span> resolvers</p>
 		</fieldset>

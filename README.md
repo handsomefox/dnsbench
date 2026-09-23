@@ -46,17 +46,29 @@ both families in one run, pass `-family ipv6` or `-family all`:
 If your host has no IPv6 route, dnsbench marks each IPv6 resolver as failed at
 once instead of retrying it.
 
+To test DNS over TLS on port 853, pass `-proto dot`, or `-proto all` for both
+transports. DoT resolvers get names like `Cloudflare-DoT-1`:
+
+```bash
+./bin/dnsbench -major -proto all -output table
+```
+
+Each DoT lookup opens a new TLS connection, so its latency includes the
+handshake. See [DNS over TLS](docs/cli.md#dns-over-tls) before you compare it
+with plain DNS.
+
 The built-in resolver and domain lists are in [`data.go`](data.go). Every flag,
 its default, and every report field is in the [CLI reference](docs/cli.md).
 
 ## Use your own resolvers and domains
 
 Write `resolvers.txt` with one `name;ip` pair per line. Addresses can be IPv4
-or IPv6:
+or IPv6. Add a third field with the certificate name to use DNS over TLS:
 
 ```text
 Cloudflare-1;1.1.1.1
 Google-v6-1;2001:4860:4860::8888
+Quad9-DoT;9.9.9.9;dns.quad9.net
 Router;fe80::1%eth0
 ```
 
@@ -74,7 +86,7 @@ Pass both files:
 ```
 
 Each file replaces the matching built-in list instead of adding to it, and `-f`
-overrides `-major` and `-family`. For the validation rules, see
+overrides `-major`, `-family`, and `-proto`. For the validation rules, see
 [input files](docs/cli.md#input-files).
 
 ## Save a report

@@ -2,9 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/binary"
 	"errors"
 	"io"
+	"math/big"
 	"net"
 	"strings"
 	"sync/atomic"
@@ -68,7 +75,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			r := NewResolver(tt.serverAddr, 1)
+			r := NewResolver(DNSServer{Addr: tt.serverAddr}, 1)
 
 			_, err := r.QueryDNS(ctx, tt.domain, tt.timeout, tt.retry)
 			if !tt.wantErr && err != nil {
@@ -132,38 +139,150 @@ func startFakeDNS(t *testing.T) *fakeDNS {
 		}
 	}()
 
-	go func() {
-		for {
-			conn, err := tcp.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer closeQuietly(conn)
-				for {
-					var size [2]byte
-					if _, err := io.ReadFull(conn, size[:]); err != nil {
-						return
-					}
-					query := make([]byte, binary.BigEndian.Uint16(size[:]))
-					if _, err := io.ReadFull(conn, query); err != nil {
-						return
-					}
-					f.tcpQueries.Add(1)
-					resp, ok := fakeAnswer(query, false)
-					if !ok {
-						return
-					}
-					msg := binary.BigEndian.AppendUint16(nil, uint16(len(resp))) //nolint:gosec // resp is far below 64 KiB
-					if _, err := conn.Write(append(msg, resp...)); err != nil {
-						return
-					}
-				}
-			}()
-		}
-	}()
+	go serveDNSStream(tcp, &f.tcpQueries)
 
 	return f
+}
+
+// serveDNSStream answers length-prefixed DNS queries on every connection
+// that ln accepts, as a TCP or DoT server does, and counts the queries.
+func serveDNSStream(ln net.Listener, queries *atomic.Int32) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer closeQuietly(conn)
+			for {
+				var size [2]byte
+				if _, err := io.ReadFull(conn, size[:]); err != nil {
+					return
+				}
+				query := make([]byte, binary.BigEndian.Uint16(size[:]))
+				if _, err := io.ReadFull(conn, query); err != nil {
+					return
+				}
+				queries.Add(1)
+				resp, ok := fakeAnswer(query, false)
+				if !ok {
+					return
+				}
+				msg := binary.BigEndian.AppendUint16(nil, uint16(len(resp))) //nolint:gosec // resp is far below 64 KiB
+				if _, err := conn.Write(append(msg, resp...)); err != nil {
+					return
+				}
+			}
+		}()
+	}
+}
+
+// startFakeDoT serves DNS over TLS on loopback with a self-signed
+// certificate for dns.test. It returns the address, a pool that trusts the
+// certificate, and a count of the queries the server answered.
+func startFakeDoT(t *testing.T) (hostPort string, roots *x509.CertPool, queries *atomic.Int32) {
+	t.Helper()
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "dns.test"},
+		DNSNames:     []string{"dns.test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots = x509.NewCertPool()
+	roots.AddCert(cert)
+
+	var lc net.ListenConfig
+	tcp, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot listen on loopback: %v", err)
+	}
+	ln := tls.NewListener(tcp, &tls.Config{
+		Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}},
+		MinVersion:   tls.VersionTLS12,
+	})
+	t.Cleanup(func() { closeQuietly(ln) })
+
+	queries = &atomic.Int32{}
+	go serveDNSStream(ln, queries)
+	return tcp.Addr().String(), roots, queries
+}
+
+func TestResolver_DNSOverTLS(t *testing.T) {
+	hostPort, roots, queries := startFakeDoT(t)
+
+	tests := []struct {
+		name       string
+		serverName string
+		wantErr    bool
+	}{
+		{name: "matching certificate", serverName: "dns.test"},
+		{name: "certificate for another name", serverName: "other.test", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &tls.Config{ServerName: tt.serverName, RootCAs: roots, MinVersion: tls.VersionTLS12}
+			r := newResolver("127.0.0.1", hostPort, cfg, 1)
+
+			before := queries.Load()
+			_, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, ResolverRetryDisabled)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("QueryDNS() succeeded against a certificate for another name")
+				}
+				if queries.Load() != before {
+					t.Error("a query reached the server before the certificate check")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("QueryDNS() error = %v", err)
+			}
+			if queries.Load() == before {
+				t.Fatal("QueryDNS() never reached the DoT server")
+			}
+		})
+	}
+}
+
+func TestResolver_PrecheckCertificate(t *testing.T) {
+	hostPort, roots, _ := startFakeDoT(t)
+
+	good := newResolver("127.0.0.1", hostPort, &tls.Config{ServerName: "dns.test", RootCAs: roots, MinVersion: tls.VersionTLS12}, 1)
+	if err := good.Precheck(t.Context()); err != nil {
+		t.Errorf("Precheck() with a matching certificate = %v, want nil", err)
+	}
+
+	wrong := newResolver("127.0.0.1", hostPort, &tls.Config{ServerName: "other.test", RootCAs: roots, MinVersion: tls.VersionTLS12}, 1)
+	err := wrong.Precheck(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "TLS certificate") {
+		t.Errorf("Precheck() with a certificate for another name = %v, want a certificate error", err)
+	}
+}
+
+func TestNewResolver_Ports(t *testing.T) {
+	if got := NewResolver(DNSServer{Addr: "2001:db8::1"}, 1).hostPort; got != "[2001:db8::1]:53" {
+		t.Errorf("plain resolver dials %s, want [2001:db8::1]:53", got)
+	}
+	if got := NewResolver(DNSServer{Addr: "192.0.2.1", TLSName: "dns.test"}, 1).hostPort; got != "192.0.2.1:853" {
+		t.Errorf("DoT resolver dials %s, want 192.0.2.1:853", got)
+	}
 }
 
 // closeQuietly closes c in a test helper, where a close error changes nothing.
@@ -215,7 +334,7 @@ func fakeAnswer(query []byte, truncated bool) ([]byte, bool) {
 
 func TestResolver_RetriesTruncatedAnswersOverTCP(t *testing.T) {
 	f := startFakeDNS(t)
-	r := newResolver("127.0.0.1", f.hostPort, 1)
+	r := newResolver("127.0.0.1", f.hostPort, nil, 1)
 
 	if _, err := r.QueryDNS(t.Context(), "truncated.example", 2*time.Second, ResolverRetryDisabled); err != nil {
 		t.Fatalf("QueryDNS() error = %v", err)

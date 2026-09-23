@@ -42,7 +42,7 @@ strings come from the user, so do not switch to `innerHTML`.
 
 - `-t` bounds one lookup attempt. It is not a budget for a lookup or for a run, and `docs/cli.md` documents it that way.
 - The logging levels are `default`, `verbose`, and `disabled`. Keep `default` quiet enough to pipe a report into a file.
-- `data.go` holds the built-in lists. Do not put internal hostnames or addresses there, or in a sample resolver file.
+- `data.go` holds the built-in lists. Do not put internal hostnames or addresses there, or in a sample resolver file. Before and after you change it, run `DNSBENCH_LIVE=1 go test -run TestBuiltinServersAnswer -v` from a host with IPv6. It sends one lookup to every built-in resolver on every transport.
 
 ## Commits
 

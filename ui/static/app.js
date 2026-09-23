@@ -30,8 +30,14 @@ function el(tag, props = {}, ...children) {
 	return node
 }
 
+// serverKey tells results apart. Plain DNS and DoT can share an address.
 function serverKey(server) {
-	return server.addr
+	return `${server.tlsName ? "dot" : "plain"} ${server.addr}`
+}
+
+// serverLabel is the address line under a resolver name.
+function serverLabel(server) {
+	return server.tlsName ? `${server.addr} · DoT ${server.tlsName}` : server.addr
 }
 
 function parseLines(text) {
@@ -41,12 +47,16 @@ function parseLines(text) {
 		.filter((line) => line && !line.startsWith("#"))
 }
 
-// parseResolvers reads "name;ip" lines. A line with no ";" is an address.
-// The server validates every address and names unnamed resolvers.
+// parseResolvers reads "name;ip" and "name;ip;tls-name" lines, the format
+// of a -f file. A line with no ";" is an address. The server validates
+// every field and names unnamed resolvers.
 function parseResolvers(text) {
 	return parseLines(text).map((line) => {
 		const parts = line.split(";").map((p) => p.trim())
-		return parts.length === 1 ? { name: "", addr: parts[0] } : { name: parts[0], addr: parts[1] ?? "" }
+		if (parts.length === 1) return { name: "", addr: parts[0] }
+		const server = { name: parts[0], addr: parts[1] }
+		if (parts[2]) server.tlsName = parts[2]
+		return server
 	})
 }
 
@@ -57,7 +67,7 @@ function useCustomResolvers() {
 // builtinSelection picks the built-in list for the current filters. The
 // key must match builtinsKey in server.go.
 function builtinSelection() {
-	return builtins[`${$("only-major").checked}/${$("family").value}`] ?? []
+	return builtins[`${$("only-major").checked}/${$("family").value}/${$("transport").value}`] ?? []
 }
 
 function formatMs(value) {
@@ -78,7 +88,7 @@ function renderConfig() {
 
 	const selection = builtinSelection()
 	$("builtin-list").replaceChildren(
-		...selection.map((s) => el("li", { title: s.addr }, el("strong", { textContent: s.name }), " ", s.addr)),
+		...selection.map((s) => el("li", { title: serverLabel(s) }, el("strong", { textContent: s.name }), " ", s.addr)),
 	)
 	$("resolver-count").textContent = custom
 		? parseResolvers($("custom-resolvers").value).length
@@ -149,7 +159,7 @@ function renderResults() {
 			return el(
 				"tr",
 				{},
-				el("td", {}, el("strong", { textContent: server.name }), el("div", { className: "muted small", textContent: server.addr })),
+				el("td", {}, el("strong", { textContent: server.name }), el("div", { className: "muted small", textContent: serverLabel(server) })),
 				el("td", { className: "num" }, el("meter", { min: 0, max: 100, low: 90, high: 99, optimum: 100, value: rate }), ` ${rate.toFixed(1)}%`),
 				el("td", { className: "num", textContent: formatMs(stats.mean) }),
 				el("td", { className: "num small", textContent: `${formatMs(stats.min)} / ${formatMs(stats.max)}` }),
@@ -283,6 +293,7 @@ async function startRun(event) {
 		warmup: Number($("warmup").value),
 		onlyMajor: $("only-major").checked,
 		family: $("family").value,
+		transport: $("transport").value,
 	}
 	// The new run's start event can arrive before the response. Clear the
 	// old run first, and let acceptEvent adopt the new run ID from either.

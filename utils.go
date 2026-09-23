@@ -87,26 +87,29 @@ func printResultsTable(w io.Writer, results []BenchmarkResult, failed bool) {
 	if len(results) == 0 {
 		return
 	}
+	// Names such as Canadian-Shield-DoT-v6-1 and IPv6 addresses run past a
+	// fixed width, and a truncated name can no longer tell two resolvers
+	// apart. Size both columns to the longest value instead.
+	nameWidth, addrWidth := len("Resolver"), len("255.255.255.255")
+	for _, r := range results {
+		nameWidth = max(nameWidth, len(r.Server.Name))
+		addrWidth = max(addrWidth, len(r.Server.Addr))
+	}
 	if failed {
-		// IPv6 addresses run longer than the 15 characters of an IPv4 one.
-		addrWidth := len("255.255.255.255")
-		for _, r := range results {
-			addrWidth = max(addrWidth, len(r.Server.Addr))
-		}
 		_, _ = fmt.Fprintln(w, "\nFailed resolvers:")
-		_, _ = fmt.Fprintf(w, "%-20s %-*s %10s %10s\n", "Resolver", addrWidth, "Address", "Errors", "Total")
+		_, _ = fmt.Fprintf(w, "%-*s %-*s %10s %10s\n", nameWidth, "Resolver", addrWidth, "Address", "Errors", "Total")
 		for _, r := range results {
-			_, _ = fmt.Fprintf(w, "%-20s %-*s %10d %10d\n",
-				truncateString(r.Server.Name, 20), addrWidth, r.Server.Addr, r.Stats.Errors, r.Stats.Total)
+			_, _ = fmt.Fprintf(w, "%-*s %-*s %10d %10d\n",
+				nameWidth, r.Server.Name, addrWidth, r.Server.Addr, r.Stats.Errors, r.Stats.Total)
 		}
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%-20s %10s %10s %10s %10s %10s\n",
-		"Resolver", "Success%", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
-	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("-", 80))
+	_, _ = fmt.Fprintf(w, "%-*s %10s %10s %10s %10s %10s\n",
+		nameWidth, "Resolver", "Success%", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
+	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("-", nameWidth+55))
 	for _, r := range results {
-		_, _ = fmt.Fprintf(w, "%-20s %9.1f%% %9.2f %9.2f %9.2f %10d\n",
-			truncateString(r.Server.Name, 20),
+		_, _ = fmt.Fprintf(w, "%-*s %9.1f%% %9.2f %9.2f %9.2f %10d\n",
+			nameWidth, r.Server.Name,
 			r.Stats.SuccessRate()*100,
 			r.Stats.Mean,
 			r.Stats.Min,
@@ -193,16 +196,6 @@ func isValidDomain(domain string) bool {
 func isValidServerAddr(addr string) bool {
 	_, err := netip.ParseAddr(addr)
 	return err == nil
-}
-
-func truncateString(s string, maxLen int) string {
-	if maxLen < 4 {
-		return s
-	}
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 func gcAndWait() {

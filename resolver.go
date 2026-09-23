@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -19,32 +20,59 @@ const (
 type Resolver struct {
 	netResolver *net.Resolver
 	dialer      *net.Dialer
+	tlsDialer   *tls.Dialer // nil for plain DNS
 	hostPort    string
 	serverAddr  string
 	concurrency int
 	sem         chan struct{}
 }
 
-func NewResolver(serverAddr string, concurrency int) *Resolver {
-	return newResolver(serverAddr, net.JoinHostPort(serverAddr, "53"), concurrency)
+// NewResolver queries server with plain DNS on port 53, or with DNS over
+// TLS on port 853 when server.TLSName is set.
+func NewResolver(server DNSServer, concurrency int) *Resolver {
+	if server.TLSName == "" {
+		return newResolver(server.Addr, net.JoinHostPort(server.Addr, "53"), nil, concurrency)
+	}
+	tlsConfig := &tls.Config{
+		ServerName: server.TLSName,
+		MinVersion: tls.VersionTLS12,
+		// Go's resolver opens a new connection for every query. Session
+		// resumption at least lets the later handshakes skip the
+		// certificate exchange, as a real DoT client would.
+		ClientSessionCache: tls.NewLRUClientSessionCache(0),
+	}
+	return newResolver(server.Addr, net.JoinHostPort(server.Addr, "853"), tlsConfig, concurrency)
 }
 
-// newResolver sends every query to hostPort. Go's resolver asks for "udp"
-// first and for "tcp" when the UDP answer comes back truncated, so Dial
-// keeps the network it is given.
-func newResolver(serverAddr, hostPort string, concurrency int) *Resolver {
+// newResolver sends every query to hostPort.
+//
+// For plain DNS, Go's resolver asks Dial for "udp" first and for "tcp" when
+// the UDP answer comes back truncated, so Dial keeps the network it is given.
+// With tlsConfig set, Dial always returns a TLS connection over TCP. It is
+// not a net.PacketConn, so Go's resolver frames the queries for a stream,
+// which is what DNS over TLS expects.
+func newResolver(serverAddr, hostPort string, tlsConfig *tls.Config, concurrency int) *Resolver {
 	dialer := &net.Dialer{}
 	if concurrency < 1 {
 		concurrency = 1
 	}
+	dial := func(ctx context.Context, network, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, network, hostPort)
+	}
+	var tlsDialer *tls.Dialer
+	if tlsConfig != nil {
+		tlsDialer = &tls.Dialer{NetDialer: dialer, Config: tlsConfig}
+		dial = func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return tlsDialer.DialContext(ctx, "tcp", hostPort)
+		}
+	}
 	return &Resolver{
 		netResolver: &net.Resolver{
 			PreferGo: true,
-			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-				return dialer.DialContext(ctx, network, hostPort)
-			},
+			Dial:     dial,
 		},
 		dialer:      dialer,
+		tlsDialer:   tlsDialer,
 		hostPort:    hostPort,
 		serverAddr:  serverAddr,
 		concurrency: concurrency,
@@ -52,16 +80,43 @@ func newResolver(serverAddr, hostPort string, concurrency int) *Resolver {
 	}
 }
 
-// CheckRoute reports whether this host can reach the resolver at all.
+// Precheck returns an error when no lookup against the resolver can
+// succeed, however often it is retried.
+//
 // Connecting a UDP socket sends nothing, but it fails at once when there is
-// no route, as with an IPv6 resolver on an IPv4-only host.
-func (r *Resolver) CheckRoute(ctx context.Context) error {
+// no route, as with an IPv6 resolver on an IPv4-only host. For DoT, one TLS
+// handshake also catches a certificate that does not match the TLS name.
+// Any other handshake failure, such as a timeout, is left to the lookups
+// and their retries.
+func (r *Resolver) Precheck(ctx context.Context) error {
 	conn, err := r.dialer.DialContext(ctx, "udp", r.hostPort)
 	if err != nil {
-		return err
+		return fmt.Errorf("no route to resolver %s: %w", r.serverAddr, err)
 	}
-	return conn.Close()
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("no route to resolver %s: %w", r.serverAddr, err)
+	}
+
+	if r.tlsDialer == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, precheckTLSTimeout)
+	defer cancel()
+	tlsConn, err := r.tlsDialer.DialContext(ctx, "tcp", r.hostPort)
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return fmt.Errorf("TLS certificate of resolver %s is not valid: %w", r.serverAddr, err)
+	}
+	if err == nil {
+		// The handshake worked. A failed close changes nothing for the lookups.
+		if cerr := tlsConn.Close(); cerr != nil {
+			slog.LogAttrs(ctx, slog.LevelDebug, "Failed to close precheck connection", slogErr(cerr))
+		}
+	}
+	return nil
 }
+
+const precheckTLSTimeout = 5 * time.Second
 
 func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retry ResolverRetry) (time.Duration, error) {
 	if domain == "" {

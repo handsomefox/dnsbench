@@ -31,6 +31,7 @@ type runOptions struct {
 	Warmup      int    `json:"warmup"`
 	OnlyMajor   bool   `json:"onlyMajor"`
 	Family      string `json:"family"`
+	Transport   string `json:"transport"`
 }
 
 type runRequest struct {
@@ -50,15 +51,18 @@ type pageData struct {
 }
 
 // builtinsKey must match the key that app.js builds in builtinSelection.
-func builtinsKey(onlyMajor bool, family AddrFamily) string {
-	return fmt.Sprintf("%t/%s", onlyMajor, family)
+func builtinsKey(f builtinFilter) string {
+	return fmt.Sprintf("%t/%s/%s", f.onlyMajor, f.family, f.transport)
 }
 
 func builtinsByFilter() map[string][]DNSServer {
 	lists := make(map[string][]DNSServer)
 	for _, onlyMajor := range []bool{false, true} {
 		for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6, FamilyAll} {
-			lists[builtinsKey(onlyMajor, family)] = builtinServers(onlyMajor, family)
+			for _, transport := range []Transport{TransportPlain, TransportDoT, TransportAll} {
+				f := builtinFilter{onlyMajor: onlyMajor, family: family, transport: transport}
+				lists[builtinsKey(f)] = builtinServers(f)
+			}
 		}
 	}
 	return lists
@@ -154,6 +158,7 @@ func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
 			Warmup:      s.baseConfig.WarmupRuns,
 			OnlyMajor:   s.baseConfig.OnlyMajorResolvers,
 			Family:      s.baseConfig.Family.String(),
+			Transport:   s.baseConfig.Transport.String(),
 		},
 		Builtins: builtinsByFilter(),
 	}
@@ -279,6 +284,13 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 		}
 		cfg.Family = family
 	}
+	if req.Options.Transport != "" {
+		transport, err := parseTransport(req.Options.Transport)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		cfg.Transport = transport
+	}
 
 	domains := req.Domains
 	if len(domains) == 0 {
@@ -295,12 +307,19 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 		if !isValidServerAddr(srv.Addr) {
 			return nil, nil, nil, fmt.Errorf("invalid resolver address %q: want an IP address without a port", srv.Addr)
 		}
+		if srv.TLSName != "" && !isValidDomain(srv.TLSName) {
+			return nil, nil, nil, fmt.Errorf("invalid TLS name %q for resolver %s", srv.TLSName, srv.Addr)
+		}
 		if srv.Name == "" {
 			servers[i].Name = srv.Addr
 		}
 	}
 	if len(servers) == 0 {
-		servers = builtinServers(cfg.OnlyMajorResolvers, cfg.Family)
+		servers = builtinServers(builtinFilter{
+			onlyMajor: cfg.OnlyMajorResolvers,
+			family:    cfg.Family,
+			transport: cfg.Transport,
+		})
 	}
 
 	return &cfg, servers, domains, nil
