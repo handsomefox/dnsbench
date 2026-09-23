@@ -136,6 +136,14 @@ func printDefaultSummary(valid, failed []BenchmarkResult) {
 	}
 }
 
+// finalError marks an error that no retry can change, such as an answer
+// that the name does not exist. retryWithBackoff returns the wrapped error
+// at once.
+type finalError struct{ err error }
+
+func (e *finalError) Error() string { return e.err.Error() }
+func (e *finalError) Unwrap() error { return e.err }
+
 func retryWithBackoff[T any](
 	ctx context.Context,
 	f func(attempt int) (T, error),
@@ -157,6 +165,9 @@ func retryWithBackoff[T any](
 		val, err = f(attempt)
 		if err == nil {
 			return val, nil
+		}
+		if final := (*finalError)(nil); errors.As(err, &final) {
+			return val, final.err
 		}
 
 		if attempt == maxRetries-1 {

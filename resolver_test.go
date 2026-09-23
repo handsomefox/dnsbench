@@ -308,10 +308,14 @@ func fakeAnswer(query []byte, truncated bool) ([]byte, bool) {
 		return nil, false
 	}
 	isA := binary.BigEndian.Uint16(query[i+1:]) == 1
+	// Names whose first label is "nx" do not exist.
+	nx := query[12] == 2 && string(query[13:15]) == "nx"
 
 	flags := uint16(0x8180) // QR, RD, RA
 	var answers uint16
 	switch {
+	case nx:
+		flags |= 3 // NXDOMAIN
 	case truncated:
 		flags |= 0x0200 // TC
 	case isA:
@@ -330,6 +334,26 @@ func fakeAnswer(query []byte, truncated bool) ([]byte, bool) {
 		resp = append(resp, 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 1)
 	}
 	return resp, true
+}
+
+// An NXDOMAIN answer is final. With retries on, a lookup that retried it
+// would wait at least a second of backoff before the second attempt.
+func TestResolver_DoesNotRetryNXDOMAIN(t *testing.T) {
+	hostPort, roots, queries := startFakeDoT(t)
+	r := newResolver("127.0.0.1", hostPort, &tls.Config{ServerName: "dns.test", RootCAs: roots, MinVersion: tls.VersionTLS12}, 1)
+
+	start := time.Now()
+	_, err := r.QueryDNS(t.Context(), "nx.example", 2*time.Second, ResolverRetryEnabled)
+	if err == nil {
+		t.Fatal("QueryDNS() succeeded for a name that does not exist")
+	}
+	if took := time.Since(start); took > 900*time.Millisecond {
+		t.Errorf("QueryDNS() took %v, so it retried a final answer", took)
+	}
+	// One lookup asks for A and AAAA, so one attempt sends two queries.
+	if got := queries.Load(); got > 2 {
+		t.Errorf("server saw %d queries, want at most 2", got)
+	}
 }
 
 func TestResolver_RetriesTruncatedAnswersOverTCP(t *testing.T) {

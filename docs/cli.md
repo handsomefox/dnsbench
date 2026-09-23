@@ -35,7 +35,9 @@ error when a value is out of range or a format name is unknown.
 `-t` bounds one attempt, not a lookup and not a run. A measured lookup makes up
 to ten attempts and waits between failed ones. That wait comes from a base delay
 that doubles from two seconds up to a sixty-second ceiling, plus random jitter.
-A resolver that keeps failing can therefore hold a run open for minutes.
+A resolver that keeps failing can therefore hold a run open for minutes. An
+answer that the name does not exist (NXDOMAIN) is final, so dnsbench does not
+retry it.
 
 Before it benchmarks a resolver, dnsbench checks for two failures that no retry
 can fix:

@@ -150,6 +150,12 @@ func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Dur
 
 		if err != nil {
 			log.LogAttrs(ctx, slog.LevelDebug, "Failed query", slogErr(err))
+			// The resolver answered that the name does not exist. Asking
+			// again gets the same answer after the backoff.
+			var dnsErr *net.DNSError
+			if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+				return took, &finalError{err: err}
+			}
 			return took, err
 		}
 
