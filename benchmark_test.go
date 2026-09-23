@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"math"
 	"testing"
 )
@@ -178,5 +179,50 @@ func TestRunBenchmark_ValidatesInput(t *testing.T) {
 
 	if _, err := runBenchmark(ctx, cfg, []DNSServer{{Name: "a", Addr: "1.1.1.1"}}, nil, NoopReporter{}); err == nil {
 		t.Fatalf("expected error for missing domains")
+	}
+}
+
+func TestStats_MarshalJSON(t *testing.T) {
+	failed := Stats{Min: math.NaN(), Max: math.NaN(), Mean: math.NaN(), Errors: 3, Total: 3}
+	ok := Stats{Min: 1.5, Max: 4, Mean: 2.25, Count: 2, Total: 2}
+
+	tests := []struct {
+		name string
+		v    any
+		want string
+	}{
+		{
+			name: "NaN latencies become null",
+			v:    failed,
+			want: `{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3}`,
+		},
+		{
+			name: "finite latencies stay numbers",
+			v:    ok,
+			want: `{"min":1.5,"max":4,"mean":2.25,"count":2,"errors":0,"total":2}`,
+		},
+		{
+			// The SSE reporter stores Stats by value inside a map.
+			name: "inside a map",
+			v:    map[string]any{"stats": failed},
+			want: `{"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3}}`,
+		},
+		{
+			name: "inside a result",
+			v:    BenchmarkResult{Server: DNSServer{Name: "a", Addr: "192.0.2.1"}, Stats: failed},
+			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := json.Marshal(tt.v)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("json.Marshal() = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }

@@ -3,10 +3,11 @@ export type DNSServer = {
   addr: string
 }
 
+// min, max, and mean are null when no lookup succeeded.
 export type Stats = {
-  min: number
-  max: number
-  mean: number
+  min: number | null
+  max: number | null
+  mean: number | null
   count: number
   errors: number
   total: number

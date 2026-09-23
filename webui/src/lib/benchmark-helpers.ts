@@ -24,7 +24,7 @@ export function successRate(stats?: Pick<Stats, "count" | "total">) {
   return (stats.count / stats.total) * 100
 }
 
-export function formatMs(val?: number) {
-  if (val === undefined || Number.isNaN(val)) return "—"
-  return `${val.toFixed(1)} ms`
+export function formatMs(val?: number | null, digits = 1) {
+  if (val === undefined || val === null || Number.isNaN(val)) return "—"
+  return `${val.toFixed(digits)} ms`
 }

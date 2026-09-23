@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { toast } from "@/components/ui/sonner"
-import { parseDomains, parseResolvers, successRate } from "@/lib/benchmark-helpers"
+import { formatMs, parseDomains, parseResolvers, successRate } from "@/lib/benchmark-helpers"
 import { ConfigPanel } from "@/components/dashboard/ConfigPanel"
 import { LivePanel } from "@/components/dashboard/LivePanel"
 import { ResultsPanel } from "@/components/dashboard/ResultsPanel"
@@ -374,8 +374,8 @@ function bumpStats(prev: Stats, latency?: number, hadError?: boolean): Stats {
   const newMean = mean + delta / count
   next.count = count
   next.mean = newMean
-  next.min = next.count === 1 ? latency : Math.min(next.min, latency)
-  next.max = next.count === 1 ? latency : Math.max(next.max, latency)
+  next.min = next.count === 1 || next.min === null ? latency : Math.min(next.min, latency)
+  next.max = next.count === 1 || next.max === null ? latency : Math.max(next.max, latency)
   return next
 }
 
@@ -389,9 +389,13 @@ function ResultsModal({ results, totalResolvers, onClose }: ResultsModalProps) {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
   const sorted = useMemo(
     () =>
-      [...results].sort((a, b) =>
-        sortDir === "asc" ? a.stats.mean - b.stats.mean : b.stats.mean - a.stats.mean,
-      ),
+      [...results].sort((a, b) => {
+        // Resolvers without a successful lookup have no mean. Keep them last.
+        if (a.stats.mean === null || b.stats.mean === null) {
+          return (a.stats.mean === null ? 1 : 0) - (b.stats.mean === null ? 1 : 0)
+        }
+        return sortDir === "asc" ? a.stats.mean - b.stats.mean : b.stats.mean - a.stats.mean
+      }),
     [results, sortDir],
   )
   const top = sorted.slice(0, 12)
@@ -436,7 +440,7 @@ function ResultsModal({ results, totalResolvers, onClose }: ResultsModalProps) {
               <tr>
                 <th className="px-3 py-2 text-left font-medium">Resolver</th>
                 <th className="px-3 py-2 text-left font-medium">Success</th>
-                <th className="px-3 py-2 text-left font-medium">Mean (ms)</th>
+                <th className="px-3 py-2 text-left font-medium">Mean</th>
                 <th className="px-3 py-2 text-left font-medium">Min / Max</th>
                 <th className="px-3 py-2 text-left font-medium">Total</th>
               </tr>
@@ -451,9 +455,9 @@ function ResultsModal({ results, totalResolvers, onClose }: ResultsModalProps) {
                   <td className="px-3 py-2 font-semibold">
                     {(successRate(r.stats) * 100).toFixed(1)}%
                   </td>
-                  <td className="px-3 py-2">{r.stats.mean.toFixed(2)}</td>
+                  <td className="px-3 py-2">{formatMs(r.stats.mean, 2)}</td>
                   <td className="px-3 py-2 text-xs">
-                    {r.stats.min.toFixed(2)} / {r.stats.max.toFixed(2)}
+                    {formatMs(r.stats.min, 2)} / {formatMs(r.stats.max, 2)}
                   </td>
                   <td className="px-3 py-2">{r.stats.total}</td>
                 </tr>

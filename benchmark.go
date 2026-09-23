@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"math"
@@ -32,6 +33,35 @@ type Stats struct {
 	Count  int     `json:"count"`
 	Errors int     `json:"errors"`
 	Total  int     `json:"total"`
+}
+
+// MarshalJSON encodes Min, Max, and Mean as null when they are NaN, which
+// happens when no lookup succeeded. encoding/json rejects NaN outright.
+// The receiver is a value so the method also applies inside maps and
+// interfaces, where the SSE reporter puts Stats.
+func (s Stats) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Min    *float64 `json:"min"`
+		Max    *float64 `json:"max"`
+		Mean   *float64 `json:"mean"`
+		Count  int      `json:"count"`
+		Errors int      `json:"errors"`
+		Total  int      `json:"total"`
+	}{
+		Min:    finiteOrNil(s.Min),
+		Max:    finiteOrNil(s.Max),
+		Mean:   finiteOrNil(s.Mean),
+		Count:  s.Count,
+		Errors: s.Errors,
+		Total:  s.Total,
+	})
+}
+
+func finiteOrNil(f float64) *float64 {
+	if math.IsNaN(f) || math.IsInf(f, 0) {
+		return nil
+	}
+	return &f
 }
 
 // IsValid returns true if the stats contain valid data

@@ -82,9 +82,9 @@ Each entry in `results` and `failures` has these fields:
 | --- | --- |
 | `server.name` | Resolver name |
 | `server.addr` | Resolver IP address |
-| `stats.min` | Fastest successful lookup, in milliseconds |
-| `stats.max` | Slowest successful lookup, in milliseconds |
-| `stats.mean` | Mean successful lookup, in milliseconds |
+| `stats.min` | Fastest successful lookup, in milliseconds. `null` when no lookup succeeded. |
+| `stats.max` | Slowest successful lookup, in milliseconds. `null` when no lookup succeeded. |
+| `stats.mean` | Mean successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.count` | Successful measured lookups |
 | `stats.errors` | Measured lookups that failed after all retries |
 | `stats.total` | Planned measured lookups, the domain count multiplied by `-n` |
@@ -105,15 +105,9 @@ success rate ahead of latency. A resolver that answered every lookup slowly
 therefore outranks one that answered most of them fast, and neither field is a
 reliable answer to "which resolver has the lowest mean latency". Read
 `results` yourself if that is the question. The encoder drops both fields when
-no valid result exists, and an empty result group encodes as `null`.
+no valid result exists. An empty group encodes as `[]`.
 
 The report carries no per-domain statistics.
-
-A resolver with no successful lookup gets `NaN` for `min`, `max`, and `mean`.
-`encoding/json` refuses `NaN`, so dnsbench writes `failed to encode json
-results` to standard error and produces no report at all. It still exits `0`,
-which means a script that only checks the exit status sees a successful run with
-empty output.
 
 For the commands that produce these reports, see
 [Save a report](../README.md#save-a-report).

@@ -78,12 +78,9 @@ overrides `-major`. For the validation rules, see
 
 CSV writes the resolvers that answered to standard output and the ones that
 failed to standard error, so the redirect above captures only the successes.
-JSON puts both groups in one document, under `results` and `failures`.
-
-One catch before you script against JSON. A resolver with no successful lookup
-gets `NaN` for its latencies, `encoding/json` refuses `NaN`, and dnsbench then
-writes `failed to encode json results` to standard error and produces no report
-at all. It still exits `0`. See [report formats](docs/cli.md#report-formats).
+JSON puts both groups in one document, under `results` and `failures`. A
+resolver with no successful lookup has `null` for `min`, `max`, and `mean`. See
+[report formats](docs/cli.md#report-formats).
 
 ## Start the Web UI
 

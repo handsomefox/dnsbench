@@ -242,6 +242,14 @@ func printResultsJSON(valid, failed []BenchmarkResult) {
 		Slowest:          slowest,
 	}
 
+	// Encode an empty group as [] rather than null.
+	if valid == nil {
+		valid = []BenchmarkResult{}
+	}
+	if failed == nil {
+		failed = []BenchmarkResult{}
+	}
+
 	output := struct {
 		Summary  Summary           `json:"summary"`
 		Results  []BenchmarkResult `json:"results"`
