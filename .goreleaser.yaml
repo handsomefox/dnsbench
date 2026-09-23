@@ -22,8 +22,7 @@ builds:
       - linux
       - windows
       - darwin
-      # For Termux. An Android build finds Android's CA certificates, which
-      # the Linux build does not look for.
+      # For Termux. Only an Android build finds Android's CA certificates.
       - android
     ignore:
       - goos: android

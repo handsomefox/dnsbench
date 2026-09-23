@@ -34,9 +34,10 @@ tar -xzf dnsbench_Android_arm64.tar.gz
 ```
 
 `./dnsbench -ui` opens the dashboard in the Android browser through
-`termux-open-url`, which the `termux-tools` package provides. The Android build
-checks certificates against Android's own CA store. The `Linux_arm64` build
-also runs in Termux and uses the same store when it finds no Linux one.
+`termux-open-url`, which the `termux-tools` package provides. Use the Android
+build, not `Linux_arm64`: only the Android build finds Android's CA
+certificates, so the Linux build fails every DoT, DoH, and DoQ resolver
+there.
 
 ## Build
 
