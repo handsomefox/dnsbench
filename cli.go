@@ -127,15 +127,15 @@ func parseFlags() *Config {
 		listenAddr string
 	)
 
-	flag.StringVar(&config.ResolversFile, "f", "", "Optional file with extra resolvers (name;ip)")
-	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout per DNS query (e.g. 1500ms, 2s)")
+	flag.StringVar(&config.ResolversFile, "f", "", "File of resolvers, one name;ip per line, that replaces the built-in list")
+	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout for one lookup attempt (e.g. 1500ms, 2s)")
 	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
-	flag.StringVar(&config.SitesFile, "s", "", "Optional file with domains to test (one domain per line)")
+	flag.StringVar(&config.SitesFile, "s", "", "File of domains, one per line, that replaces the built-in list")
 	flag.StringVar(&outputType, "output", "default", "Output format: default, csv, table, or json")
 	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
-	flag.IntVar(&warmupRuns, "warmup", 0, "Number of warmup queries per resolver/domain before benchmarking")
+	flag.IntVar(&warmupRuns, "warmup", 0, "Warmup lookups to run before each measured lookup")
 	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
 	flag.StringVar(&listenAddr, "listen", ":8080", "Address for the Web UI HTTP server (used with -ui)")
 
@@ -157,8 +157,8 @@ Examples:
   # Default benchmark
   dnsbench
 
-  # Test with more repeats and longer timeout
-  dnsbench -n 20 -t 3s
+  # Test with more repeats and a longer timeout
+  dnsbench -n 20 -t 5s
 
   # Use custom resolver list and increase concurrency
   dnsbench -f myresolvers.txt -c 10
