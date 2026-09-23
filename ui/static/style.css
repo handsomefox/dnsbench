@@ -1,8 +1,27 @@
 /*
  * dnsbench dashboard. Plotting-paper palette: blue-grey paper, navy ink,
- * cobalt data marks, and red only for failed lookups. Data and names are
- * set in the system monospace face; the binary ships no web fonts.
+ * cobalt data marks, and red only for failed lookups. The binary embeds
+ * two fonts, each with its license in fonts/: Instrument Sans for the
+ * interface, and Martian Mono for names, addresses, and numbers.
  */
+
+@font-face {
+	font-family: "Instrument Sans";
+	font-style: normal;
+	font-weight: 400 700;
+	font-stretch: 75% 100%;
+	font-display: swap;
+	src: url("fonts/instrument-sans.woff2") format("woff2");
+}
+
+@font-face {
+	font-family: "Martian Mono";
+	font-style: normal;
+	font-weight: 100 800;
+	font-stretch: 75% 112.5%;
+	font-display: swap;
+	src: url("fonts/martian-mono.woff2") format("woff2");
+}
 
 :root {
 	color-scheme: light dark;
@@ -18,8 +37,8 @@
 	--fail-bg: #f1dfdd;
 	--dot-tag: #7a5600;
 
-	--mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
-	--sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+	--mono: "Martian Mono", ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace;
+	--sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 	--radius: 6px;
 
 	font: 15px/1.5 var(--sans);

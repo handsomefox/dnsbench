@@ -152,6 +152,7 @@ func TestUIServer_Routes(t *testing.T) {
 		}},
 		{method: http.MethodGet, path: "/static/app.js", wantStatus: http.StatusOK, wantBody: []string{"connectEvents"}},
 		{method: http.MethodGet, path: "/static/style.css", wantStatus: http.StatusOK},
+		{method: http.MethodGet, path: "/static/fonts/martian-mono.woff2", wantStatus: http.StatusOK, wantBody: []string{"wOF2"}},
 		{method: http.MethodGet, path: "/nope", wantStatus: http.StatusNotFound},
 		{method: http.MethodGet, path: "/api/run", wantStatus: http.StatusMethodNotAllowed},
 		{method: http.MethodPost, path: "/api/stop", wantStatus: http.StatusNoContent},
