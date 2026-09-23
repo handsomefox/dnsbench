@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/handsomefox/dnsbench/internal/bench"
 	"github.com/handsomefox/dnsbench/internal/catalog"
@@ -155,17 +156,13 @@ func parseFlags() *Config {
 
 	flag.Usage = func() { printUsage(flag.CommandLine) }
 
-	flag.Parse()
+	// Parse only fails with ExitOnError by exiting.
+	_ = flag.CommandLine.Parse(fixDashes(os.Args[1:])) //nolint:errcheck // see above
 
 	// dnsbench takes no arguments besides flags. Ignoring one would run a
 	// benchmark for "dnsbench ui" instead of serving the dashboard.
 	if flag.NArg() > 0 {
-		arg := flag.Arg(0)
-		hint := ""
-		if fs := flag.Lookup(strings.TrimLeft(arg, "-")); fs != nil {
-			hint = fmt.Sprintf(" Did you mean -%s?", fs.Name)
-		}
-		fmt.Fprintf(os.Stderr, "Error: unexpected argument %q.%s Flags start with a dash, and dnsbench -h lists them.\n", arg, hint)
+		fmt.Fprintln(os.Stderr, "Error:", unexpectedArgument(flag.Arg(0)))
 		os.Exit(1)
 	}
 
@@ -341,4 +338,45 @@ Examples:
 `)
 	//nolint:errcheck // best-effort help output
 	_, _ = io.WriteString(fs.Output(), b.String())
+}
+
+// lookalikeDashes are characters that phone keyboards and word processors
+// put where a hyphen was typed. The flag parser takes only "-".
+const lookalikeDashes = "\u2010\u2011\u2012\u2013\u2014\u2015\u2212\ufe63\uff0d"
+
+// unexpectedArgument explains an argument that is not a flag, and suggests
+// the flag it most likely meant.
+func unexpectedArgument(arg string) string {
+	name := strings.TrimLeft(arg, "-"+lookalikeDashes)
+	lead := arg[:len(arg)-len(name)]
+	msg := fmt.Sprintf("unexpected argument %q.", arg)
+	if strings.ContainsAny(lead, lookalikeDashes) {
+		first, _ := utf8.DecodeRuneInString(lead)
+		msg += fmt.Sprintf(" It starts with %q, which looks like a hyphen but is not one. Keyboards on phones often swap it in.", first)
+	}
+	if f := flag.Lookup(name); f != nil {
+		return msg + fmt.Sprintf(" Did you mean -%s, with a plain hyphen?", f.Name)
+	}
+	return msg + " Flags start with a hyphen, and dnsbench -h lists them."
+}
+
+// fixDashes replaces a lookalike dash in front of a flag name with a
+// hyphen, so "–ui" typed on a phone keyboard works as "-ui". It changes an
+// argument only when what follows the dashes names a flag, as in "–ui" or
+// "——n=5", so a flag's value is left alone unless it could only be a flag.
+func fixDashes(args []string) []string {
+	out := make([]string, len(args))
+	for i, arg := range args {
+		out[i] = arg
+		name := strings.TrimLeft(arg, "-"+lookalikeDashes)
+		lead := arg[:len(arg)-len(name)]
+		if !strings.ContainsAny(lead, lookalikeDashes) {
+			continue
+		}
+		flagName, _, _ := strings.Cut(name, "=")
+		if flag.Lookup(flagName) != nil {
+			out[i] = "-" + name
+		}
+	}
+	return out
 }
