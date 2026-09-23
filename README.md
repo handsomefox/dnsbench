@@ -22,23 +22,6 @@ go install github.com/handsomefox/dnsbench@latest
 The examples below run `./bin/dnsbench` from a checkout. After `go install`,
 run `dnsbench` instead.
 
-### On Android with Termux
-
-In [Termux](https://termux.dev), download the `Android_arm64` archive and start
-the dashboard:
-
-```bash
-curl -LO https://github.com/handsomefox/dnsbench/releases/latest/download/dnsbench_Android_arm64.tar.gz
-tar -xzf dnsbench_Android_arm64.tar.gz
-./dnsbench -ui
-```
-
-The dashboard opens in the Android browser through `termux-open-url`, which
-the `termux-tools` package provides. If it does not open, go to
-<http://127.0.0.1:8080>. Use the Android build, not `Linux_arm64`. Termux on
-Android 10 and later refuses the Linux build with `has unexpected e_type: 2`,
-and only the Android build finds Android's CA certificates.
-
 ## Build
 
 You need Go 1.27.1 or later.
@@ -215,6 +198,23 @@ table.
 dashboard. It has no authentication, and it runs lookups against whatever
 resolver addresses a request names. To open it to other machines, pass
 `-listen :8080`, and put it behind a firewall or a reverse proxy.
+
+## Run on Android
+
+In [Termux](https://termux.dev), download the `Android_arm64` archive and start
+the dashboard:
+
+```bash
+curl -fLO https://github.com/handsomefox/dnsbench/releases/latest/download/dnsbench_Android_arm64.tar.gz
+tar -xzf dnsbench_Android_arm64.tar.gz
+./dnsbench -ui
+```
+
+The dashboard opens in the Android browser through `termux-open-url`, which
+the `termux-tools` package provides. If it does not open, go to
+<http://127.0.0.1:8080>. Use the Android build, not `Linux_arm64`. Termux on
+Android 10 and later refuses the Linux build with `has unexpected e_type: 2`,
+and only the Android build finds Android's CA certificates.
 
 ## Documentation
 
