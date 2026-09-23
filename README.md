@@ -4,9 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 dnsbench measures how fast and how reliably DNS resolvers answer from your
-machine. It benchmarks one resolver at a time against a list of domains and
-reports latency and success rate as text, a table, CSV, or JSON. An embedded Web
-UI shows a run while it happens.
+machine. It benchmarks one resolver at a time against a list of domains, over
+plain DNS or DNS over TLS, on IPv4 or IPv6. It reports latency and success rate
+as text, a table, CSV, or JSON, and an embedded Web UI shows a run while it
+happens.
 
 ## Build
 
@@ -24,7 +25,7 @@ binary embeds all three, so the build needs no Node.js.
 
 ## Run a benchmark
 
-To test the built-in major resolvers with five lookups per domain, run:
+To test the major built-in resolvers with five lookups per domain, run:
 
 ```bash
 ./bin/dnsbench -major -n 5 -c 8 -warmup 2 -log disabled -output table
@@ -36,34 +37,32 @@ To test every built-in resolver with more repeats and a longer timeout, run:
 ./bin/dnsbench -n 20 -t 5s
 ```
 
-The built-in resolvers use IPv4 by default. To test their IPv6 addresses, or
-both families in one run, pass `-family ipv6` or `-family all`:
-
-```bash
-./bin/dnsbench -major -family all -output table
-```
-
-If your host has no IPv6 route, dnsbench marks each IPv6 resolver as failed at
-once instead of retrying it.
-
-To test DNS over TLS on port 853, pass `-proto dot`, or `-proto all` for both
-transports. DoT resolvers get names like `Cloudflare-DoT-1`:
-
-```bash
-./bin/dnsbench -major -proto all -output table
-```
-
-Each DoT lookup opens a new TLS connection, so its latency includes the
-handshake. See [DNS over TLS](docs/cli.md#dns-over-tls) before you compare it
-with plain DNS.
-
 The built-in resolver and domain lists are in [`data.go`](data.go). Every flag,
 its default, and every report field is in the [CLI reference](docs/cli.md).
 
+## Test IPv6 and DNS over TLS
+
+The built-in resolvers run over plain DNS on IPv4 by default. `-family` picks
+the address family and `-proto` picks the transport. To compare everything the
+major providers offer, run:
+
+```bash
+./bin/dnsbench -major -family all -proto all -output table
+```
+
+The IPv6 resolvers get names like `Cloudflare-v6-1`, and the DoT resolvers get
+names like `Cloudflare-DoT-1`. If your host has no IPv6 route, dnsbench marks
+each IPv6 resolver as failed at once instead of retrying it.
+
+Each DoT lookup opens a new TLS connection, so its latency includes the TCP and
+TLS handshakes. Compare DoT resolvers with each other. For the reason, see
+[DNS over TLS](docs/cli.md#dns-over-tls).
+
 ## Use your own resolvers and domains
 
-Write `resolvers.txt` with one `name;ip` pair per line. Addresses can be IPv4
-or IPv6. Add a third field with the certificate name to use DNS over TLS:
+Write `resolvers.txt` with one `name;ip` pair per line. Addresses can be IPv4 or
+IPv6. To use DNS over TLS, add a third field with the name on the resolver's
+certificate:
 
 ```text
 Cloudflare-1;1.1.1.1
@@ -85,9 +84,9 @@ Pass both files:
 ./bin/dnsbench -f resolvers.txt -s domains.txt -output table
 ```
 
-Each file replaces the matching built-in list instead of adding to it, and `-f`
-overrides `-major`, `-family`, and `-proto`. For the validation rules, see
-[input files](docs/cli.md#input-files).
+Each file replaces the matching built-in list instead of adding to it. `-major`,
+`-family`, and `-proto` do not filter a resolver file. For the validation rules,
+see [input files](docs/cli.md#input-files).
 
 ## Save a report
 
@@ -109,9 +108,9 @@ resolver with no successful lookup has `null` for `min`, `max`, and `mean`. See
 ```
 
 dnsbench tries to open your browser at that address. If it does not, open
-<http://127.0.0.1:8080> yourself. Pick the domains, resolvers, and options, then
-click **Start benchmark**. **Stop** ends a run early. **Reset** clears the
-results and restores the default settings.
+<http://127.0.0.1:8080> yourself. Pick the domains, the resolvers, and the
+options, then click **Start benchmark**. **Stop** ends a run early. **Reset**
+clears the results and restores the default settings.
 
 `-listen` defaults to `:8080`, which accepts connections from anywhere that can
 reach your machine. The dashboard has no authentication, and it runs lookups
@@ -121,6 +120,6 @@ your own machine, put it behind a firewall or a reverse proxy.
 ## Documentation
 
 - [CLI reference](docs/cli.md): flags, lookup behavior, input files, and report formats.
-- [Contributing](AGENTS.md): build commands, conventions, and what to check.
+- [Contributing](AGENTS.md): checks, the dashboard, and conventions.
 
 dnsbench uses the [MIT license](LICENSE).

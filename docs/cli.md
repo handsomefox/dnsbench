@@ -27,8 +27,8 @@ resolver and domain lists are in [`data.go`](../data.go).
 | `-listen string` | `:8080` | Web UI listen address. The default accepts connections on every interface. |
 
 The flag parser takes one or two leading hyphens. The values of `-output`,
-`-log`, `-family`, and `-proto` are case-insensitive. dnsbench exits `1` with a message on standard
-error when a value is out of range or a format name is unknown.
+`-log`, `-family`, and `-proto` are case-insensitive. dnsbench exits `1` with a
+message on standard error when a value is out of range or a name is unknown.
 
 ## Lookup behavior
 
@@ -52,20 +52,6 @@ can fix:
 If either check fails, dnsbench logs a warning and counts every planned lookup
 against that resolver as failed, without retries.
 
-### DNS over TLS
-
-A DoT resolver must present a certificate for its TLS name that your system
-trusts. A lookup against a resolver with the wrong name fails with a
-certificate error, as it should.
-
-Go's resolver opens a new connection for every query and does not reuse it.
-Every DoT lookup therefore pays for a TCP handshake and a TLS handshake before
-it gets its answer, so DoT latency measures a cold connection. A client that
-keeps one connection open, such as systemd-resolved or Android's private DNS,
-pays that cost once. dnsbench keeps TLS sessions per resolver, so handshakes
-after the first resume the session instead of repeating the certificate
-exchange. Compare DoT resolvers with each other rather than with plain DNS.
-
 The reported latency covers the successful attempt alone. It leaves out the
 earlier attempts, the backoff, and the time the lookup spent waiting for a
 concurrency slot.
@@ -73,6 +59,19 @@ concurrency slot.
 Warmup runs before every measured lookup, including each repeat, so `-warmup 2`
 with `-n 10` means twenty warmup lookups per domain. Warmup lookups use a
 one-second timeout, do not retry, and never reach the statistics.
+
+### DNS over TLS
+
+A DoT resolver must present a certificate that your system trusts and that
+matches its TLS name. If it does not, the pre-check above fails the resolver.
+
+Go's resolver opens a new connection for every query and does not reuse it.
+Every DoT lookup therefore pays for a TCP handshake and a TLS handshake before
+it gets its answer, so DoT latency measures a cold connection. A client that
+keeps one connection open, such as systemd-resolved or Android's private DNS,
+pays that cost once. dnsbench keeps TLS sessions for each resolver, so the
+handshakes after the first resume the session and skip the certificate
+exchange. DoT latencies are comparable with each other, not with plain DNS.
 
 ## Input files
 
@@ -108,8 +107,7 @@ you one domain rather than the run. A file with no valid domains is an error.
 ## Report formats
 
 Resolvers that answered sort by descending success rate, then by ascending mean
-latency. Resolvers with no valid latency statistics form a separate failed
-group. All latencies are milliseconds and count successful lookups only.
+latency. Resolvers with no successful lookup form a separate failed group. All latencies are milliseconds and count successful lookups only.
 
 | Format | Output |
 | --- | --- |
@@ -131,7 +129,7 @@ Each entry in `results` and `failures` has these fields:
 | `stats.max` | Slowest successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.mean` | Mean successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.count` | Successful measured lookups |
-| `stats.errors` | Measured lookups that failed after all retries |
+| `stats.errors` | Measured lookups that failed, after any retries |
 | `stats.total` | Planned measured lookups, the domain count multiplied by `-n` |
 
 The `summary` object has these fields:
@@ -139,8 +137,8 @@ The `summary` object has these fields:
 | Field | Meaning |
 | --- | --- |
 | `total_resolvers` | Resolvers in both groups |
-| `success_resolvers` | Resolvers with valid latency statistics |
-| `failed_resolvers` | Resolvers without valid latency statistics |
+| `success_resolvers` | Resolvers with at least one successful lookup |
+| `failed_resolvers` | Resolvers with no successful lookup |
 | `overall_success_rate` | Success percentage from `0` to `100`, counted across `results` only |
 | `fastest_resolver` | The first result object in the sorted `results` group |
 | `slowest_resolver` | The last result object in the sorted `results` group |
