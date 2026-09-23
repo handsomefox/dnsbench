@@ -348,8 +348,13 @@ func openBrowser(ctx context.Context, url string) error {
 
 	switch runtime.GOOS {
 	case "android":
-		// Termux opens URLs in the Android browser with termux-open-url.
-		cmd = "termux-open-url"
+		// Termux opens URLs in the Android browser with termux-open-url, a
+		// script in Termux's app directory. Android refuses to run files
+		// from there directly, and Go's exec bypasses the libc hook that
+		// Termux uses to allow it. Android's own shell uses libc, so it
+		// runs the script through that hook. The URL is passed as $1.
+		cmd = "/system/bin/sh"
+		args = []string{"-c", `exec termux-open-url "$1"`, "dnsbench"}
 	case "windows":
 		cmd = "cmd"
 		args = []string{"/c", "start"}
