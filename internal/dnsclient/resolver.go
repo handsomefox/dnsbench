@@ -33,6 +33,11 @@ const (
 type Lookup struct {
 	Latency  time.Duration
 	Attempts int
+	// NoAddress is set when the resolver answered that the name does not
+	// exist or has no A record. Query returns the answer's error with it,
+	// and Latency holds the time that answer took. Filtering resolvers
+	// answer blocked names this way.
+	NoAddress bool
 }
 
 // ednsUDPSize is the UDP payload size that queries advertise. 1232 bytes
@@ -269,6 +274,9 @@ func (r *Resolver) Query(ctx context.Context, domain string, timeout time.Durati
 
 	elapsed, attempts, err := retryWithBackoff(ctx, try, 1+max(retries, 0), retryBackoff, retryBackoffMax)
 	if err != nil {
+		if IsFinalAnswer(err) {
+			return Lookup{Latency: elapsed, Attempts: attempts, NoAddress: true}, fmt.Errorf("DNS query for %s via %s: %w", domain, r.serverAddr, err)
+		}
 		if errors.Is(err, context.DeadlineExceeded) {
 			return Lookup{Attempts: attempts}, fmt.Errorf("DNS query timeout for %s via %s: %w", domain, r.serverAddr, err)
 		}

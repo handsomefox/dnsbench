@@ -65,8 +65,15 @@ failed. A second Ctrl+C exits at once, without a report.
 `-t` bounds one attempt, not a lookup and not a run. A measured lookup makes
 one attempt and, when it fails, up to `-retries` more. Between attempts it waits
 between 125 and 375 milliseconds, then between 250 and 750, and never more than
-a second and a half. An answer that the name does not exist (NXDOMAIN), or that
-it has no A record, is final, so dnsbench does not retry it.
+a second and a half.
+
+An answer that the name does not exist (NXDOMAIN), or that it has no A record,
+is final, so dnsbench does not retry it. It still counts as an answered lookup,
+with its latency, and the reports count it separately as `blocked`. Filtering
+resolvers answer that way for the names they block: a family filter can block
+`reddit.com` from the built-in list. Other filters answer a blocked name with
+an address such as `0.0.0.0`, which counts as a plain answer. A resolver that
+reports every name as missing shows every lookup as blocked.
 
 A lookup that answered only after a retry still counts as a success. The
 reports count those lookups separately as `retried`, and the dashboard
@@ -203,9 +210,9 @@ captures every resolver. Logs and errors go to standard error.
 | `json` | One report object with `summary`, `results`, and `failures` |
 
 The table shows, for each resolver, the success rate, the retried lookups, the
-median, the 95th percentile, the mean, the fastest and slowest lookups, and the
+blocked lookups, the median, the 95th percentile, the mean, the fastest and slowest lookups, and the
 planned lookups. The CSV columns are `Resolver`, `Address`, `Transport`,
-`Success Rate`, `Answered`, `Failed`, `Retried`, `Median (ms)`, `P95 (ms)`,
+`Success Rate`, `Answered`, `Failed`, `Retried`, `Blocked`, `Median (ms)`, `P95 (ms)`,
 `Mean (ms)`, `Min (ms)`, `Max (ms)`, and `Total Queries`. The CSV quotes a
 field that holds a comma or a quote.
 
@@ -229,6 +236,7 @@ Each entry in `results` and `failures` has these fields:
 | `stats.errors` | Measured lookups that failed, after any retries |
 | `stats.total` | Planned measured lookups, the domain count multiplied by `-n` |
 | `stats.retried` | Successful lookups that needed more than one attempt |
+| `stats.blocked` | Successful lookups that the resolver answered with NXDOMAIN or without an A record |
 
 The `summary` object has these fields:
 

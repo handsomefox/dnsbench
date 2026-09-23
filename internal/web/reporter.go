@@ -41,15 +41,20 @@ func (r *SSEReporter) OnResolverStart(server dnsclient.Server, index, total int)
 	})
 }
 
-func (r *SSEReporter) OnQueryResult(server dnsclient.Server, domain string, latencyMs float64, attempts int, err error) {
+// OnQueryResult sends a query event. A blocked lookup carries its latency
+// and "blocked": true instead of an error.
+func (r *SSEReporter) OnQueryResult(server dnsclient.Server, result bench.QueryResult) {
 	detail := map[string]any{
 		"server":   server,
-		"domain":   domain,
-		"latency":  latencyMs,
-		"attempts": attempts,
+		"domain":   result.Domain,
+		"latency":  result.LatencyMs,
+		"attempts": result.Attempts,
 	}
-	if err != nil {
-		detail["error"] = err.Error()
+	switch {
+	case result.Blocked:
+		detail["blocked"] = true
+	case result.Err != nil:
+		detail["error"] = result.Err.Error()
 	}
 	r.hub.Broadcast(SSEEvent{
 		Type:   "query",

@@ -215,23 +215,23 @@ func TestStats_MarshalJSON(t *testing.T) {
 		{
 			name: "NaN latencies become null",
 			v:    failed,
-			want: `{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0}`,
+			want: `{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0,"blocked":0}`,
 		},
 		{
 			name: "finite latencies stay numbers",
 			v:    ok,
-			want: `{"min":1.5,"max":4,"mean":2.25,"median":2.25,"p95":3.8,"count":2,"errors":0,"total":2,"retried":0}`,
+			want: `{"min":1.5,"max":4,"mean":2.25,"median":2.25,"p95":3.8,"count":2,"errors":0,"total":2,"retried":0,"blocked":0}`,
 		},
 		{
 			// The SSE reporter stores Stats by value inside a map.
 			name: "inside a map",
 			v:    map[string]any{"stats": failed},
-			want: `{"stats":{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0}}`,
+			want: `{"stats":{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0,"blocked":0}}`,
 		},
 		{
 			name: "inside a result",
 			v:    Result{Server: dnsclient.Server{Name: "a", Addr: "192.0.2.1"}, Stats: failed},
-			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0}}`,
+			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"median":null,"p95":null,"count":0,"errors":3,"total":3,"retried":0,"blocked":0}}`,
 		},
 	}
 
@@ -254,10 +254,10 @@ type countingReporter struct {
 	err    atomic.Value
 }
 
-func (r *countingReporter) OnQueryResult(_ dnsclient.Server, _ string, _ float64, _ int, err error) {
-	if err != nil {
+func (r *countingReporter) OnQueryResult(_ dnsclient.Server, result QueryResult) {
+	if result.Err != nil {
 		r.failed.Add(1)
-		r.err.Store(err.Error())
+		r.err.Store(result.Err.Error())
 	}
 }
 
@@ -333,7 +333,7 @@ type cancelAfter struct {
 	cancel context.CancelFunc
 }
 
-func (r *cancelAfter) OnQueryResult(_ dnsclient.Server, _ string, _ float64, _ int, _ error) {
+func (r *cancelAfter) OnQueryResult(_ dnsclient.Server, _ QueryResult) {
 	if r.n.Add(-1) == 0 {
 		r.cancel()
 	}
@@ -432,5 +432,20 @@ func TestRun_CanceledBeforeLookups(t *testing.T) {
 		if r.Stats.Errors != 0 || r.Stats.Total != 0 {
 			t.Errorf("%s: stats = %+v, want no lookups at all", r.Server.Name, r.Stats)
 		}
+	}
+}
+
+// A filtering resolver answers a blocked name with NXDOMAIN. That is an
+// answer, so the lookup counts as answered and blocked, not as failed.
+func TestRun_CountsNXDOMAINAsBlocked(t *testing.T) {
+	f := dnstest.StartDoT(t, false)
+	cfg := Options{Repeats: 2, Timeout: 2 * time.Second, Concurrency: 2, NewResolver: viaDoT(f)}
+	results, err := Run(t.Context(), cfg, []dnsclient.Server{{Name: "a", Addr: "127.0.0.1"}}, []string{"ok.example", "nx.example"}, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	s := results[0].Stats
+	if s.Count != 4 || s.Blocked != 2 || s.Errors != 0 {
+		t.Errorf("stats = %+v, want 4 answered, 2 of them blocked, and no errors", s)
 	}
 }

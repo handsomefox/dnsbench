@@ -91,7 +91,7 @@ func split(results []bench.Result) (valid, failed []bench.Result) {
 }
 
 var csvHeader = []string{
-	"Resolver", "Address", "Transport", "Success Rate", "Answered", "Failed", "Retried",
+	"Resolver", "Address", "Transport", "Success Rate", "Answered", "Failed", "Retried", "Blocked",
 	"Median (ms)", "P95 (ms)", "Mean (ms)", "Min (ms)", "Max (ms)", "Total Queries",
 }
 
@@ -113,7 +113,7 @@ func writeCSV(w io.Writer, valid, failed []bench.Result) error {
 		row := []string{
 			r.Server.Name, r.Server.Addr, r.Server.Transport(),
 			strconv.FormatFloat(s.SuccessRate()*100, 'f', 1, 64),
-			strconv.Itoa(s.Count), strconv.Itoa(s.Errors), strconv.Itoa(s.Retried),
+			strconv.Itoa(s.Count), strconv.Itoa(s.Errors), strconv.Itoa(s.Retried), strconv.Itoa(s.Blocked),
 			ms(s.Median, ok), ms(s.P95, ok), ms(s.Mean, ok), ms(s.Min, ok), ms(s.Max, ok),
 			strconv.Itoa(s.Total),
 		}
@@ -136,13 +136,13 @@ func writeTable(w io.Writer, valid, failed []bench.Result) error {
 		for _, r := range valid {
 			nameWidth = max(nameWidth, len(r.Server.Name))
 		}
-		fmt.Fprintf(&b, "%-*s %9s %8s %10s %10s %10s %10s %10s %8s\n",
-			nameWidth, "Resolver", "Success%", "Retried", "Median(ms)", "P95(ms)", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
-		fmt.Fprintf(&b, "%s\n", strings.Repeat("-", nameWidth+84))
+		fmt.Fprintf(&b, "%-*s %9s %8s %8s %10s %10s %10s %10s %10s %8s\n",
+			nameWidth, "Resolver", "Success%", "Retried", "Blocked", "Median(ms)", "P95(ms)", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
+		fmt.Fprintf(&b, "%s\n", strings.Repeat("-", nameWidth+93))
 		for _, r := range valid {
 			s := r.Stats
-			fmt.Fprintf(&b, "%-*s %8.1f%% %8d %10.2f %10.2f %10.2f %10.2f %10.2f %8d\n",
-				nameWidth, r.Server.Name, s.SuccessRate()*100, s.Retried,
+			fmt.Fprintf(&b, "%-*s %8.1f%% %8d %8d %10.2f %10.2f %10.2f %10.2f %10.2f %8d\n",
+				nameWidth, r.Server.Name, s.SuccessRate()*100, s.Retried, s.Blocked,
 				s.Median, s.P95, s.Mean, s.Min, s.Max, s.Total)
 		}
 	}

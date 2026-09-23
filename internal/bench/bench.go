@@ -38,6 +38,9 @@ type Stats struct {
 	// Retried counts the successful lookups that needed more than one
 	// attempt.
 	Retried int `json:"retried"`
+	// Blocked counts the successful lookups that the resolver answered with
+	// no address: NXDOMAIN, or no A record.
+	Blocked int `json:"blocked"`
 }
 
 // MarshalJSON encodes the latency fields as null when no lookup succeeded,
@@ -55,6 +58,7 @@ func (s Stats) MarshalJSON() ([]byte, error) {
 		Errors  int      `json:"errors"`
 		Total   int      `json:"total"`
 		Retried int      `json:"retried"`
+		Blocked int      `json:"blocked"`
 	}{
 		Min:     s.latency(s.Min),
 		Max:     s.latency(s.Max),
@@ -65,6 +69,7 @@ func (s Stats) MarshalJSON() ([]byte, error) {
 		Errors:  s.Errors,
 		Total:   s.Total,
 		Retried: s.Retried,
+		Blocked: s.Blocked,
 	})
 }
 
@@ -294,8 +299,9 @@ type resolverRun struct {
 	latencies  []float64
 	errors     int
 	retried    int
+	blocked    int
 	remaining  int
-	failStreak int // lookups in a row that failed, not counting final answers
+	failStreak int // lookups in a row that got no answer
 }
 
 // lookup runs job's warmup lookups, then its measured lookup, and records
@@ -336,14 +342,20 @@ func (r *resolverRun) record(ctx context.Context, domain string, result dnsclien
 	r.mu.Lock()
 	latency := result.Latency.Seconds() * 1000
 	giveUp := false
+	blocked := err != nil && result.NoAddress
 	switch {
-	case err == nil:
+	case err == nil, blocked:
+		// An answer that the name has no address is still an answer,
+		// and filtering resolvers give it for every name they block.
 		r.latencies = append(r.latencies, latency)
 		if result.Attempts > 1 {
 			r.retried++
 		}
+		if blocked {
+			r.blocked++
+		}
 		r.failStreak = 0
-	case dnsclient.IsFinalAnswer(err), r.ctx.Err() != nil:
+	case r.ctx.Err() != nil:
 		// An answer about the name, or a lookup after the run gave up on
 		// the resolver, says nothing new about whether it answers.
 		r.errors++
@@ -367,7 +379,7 @@ func (r *resolverRun) record(ctx context.Context, domain string, result dnsclien
 		r.giveUp(errGaveUp)
 	}
 
-	reporter.OnQueryResult(r.server, domain, latency, result.Attempts, err)
+	reporter.OnQueryResult(r.server, QueryResult{Domain: domain, LatencyMs: latency, Attempts: result.Attempts, Blocked: blocked, Err: err})
 	if done {
 		stats := r.stats()
 		took := time.Since(r.start)
@@ -387,6 +399,7 @@ func (r *resolverRun) stats() Stats {
 	defer r.mu.Unlock()
 	stats := calculateStats(slices.Clone(r.latencies), r.errors, len(r.latencies)+r.errors)
 	stats.Retried = r.retried
+	stats.Blocked = r.blocked
 	return stats
 }
 
@@ -423,10 +436,10 @@ func (r *serialReporter) OnResolverStart(server dnsclient.Server, index, total i
 	r.next.OnResolverStart(server, index, total)
 }
 
-func (r *serialReporter) OnQueryResult(server dnsclient.Server, domain string, latencyMs float64, attempts int, err error) {
+func (r *serialReporter) OnQueryResult(server dnsclient.Server, result QueryResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.next.OnQueryResult(server, domain, latencyMs, attempts, err)
+	r.next.OnQueryResult(server, result)
 }
 
 func (r *serialReporter) OnResolverDone(server dnsclient.Server, stats Stats, took time.Duration) {

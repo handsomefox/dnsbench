@@ -69,11 +69,11 @@ func (p *progress) finish() {
 	p.clear()
 }
 
-func (p *progress) OnQueryResult(_ dnsclient.Server, _ string, _ float64, _ int, err error) {
+func (p *progress) OnQueryResult(_ dnsclient.Server, result bench.QueryResult) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.done++
-	if err != nil {
+	if result.Failed() {
 		p.failed++
 	}
 }

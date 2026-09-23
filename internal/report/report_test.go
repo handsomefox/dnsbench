@@ -40,7 +40,7 @@ func TestWrite_CSV(t *testing.T) {
 		t.Errorf("rows are %q, want fast, slow, then dead", names)
 	}
 	dead := rows[3]
-	if dead[2] != "dot" || dead[5] != "4" || dead[7] != "" {
+	if dead[2] != "dot" || dead[5] != "4" || dead[8] != "" {
 		t.Errorf("dead row = %q, want transport dot, 4 failed, and no median", dead)
 	}
 	if rows[1][6] != "1" {

@@ -703,12 +703,12 @@ function p95(entry) {
 }
 
 function emptyStats() {
-	return { min: null, max: null, mean: null, count: 0, errors: 0, total: 0, retried: 0 }
+	return { min: null, max: null, mean: null, count: 0, errors: 0, total: 0, retried: 0, blocked: 0 }
 }
 
 // liveStats folds one lookup into a resolver's running statistics until
 // the resolver_done event replaces them with the server's numbers.
-function liveStats(prev, latency, failed, attempts) {
+function liveStats(prev, latency, failed, attempts, blocked) {
 	const next = { ...prev, total: prev.total + 1 }
 	if (failed) {
 		next.errors += 1
@@ -716,6 +716,7 @@ function liveStats(prev, latency, failed, attempts) {
 	}
 	next.count += 1
 	if (attempts > 1) next.retried = (prev.retried ?? 0) + 1
+	if (blocked) next.blocked = (prev.blocked ?? 0) + 1
 	next.mean = (prev.mean ?? 0) + (latency - (prev.mean ?? 0)) / next.count
 	next.min = prev.min === null ? latency : Math.min(prev.min, latency)
 	next.max = prev.max === null ? latency : Math.max(prev.max, latency)
@@ -879,8 +880,12 @@ function renderLadder() {
 		// A lookup that answered only after a retry still counts as OK. Mark
 		// the rate, so a flaky resolver does not pass for a solid one.
 		const retried = entry.stats.retried ?? 0
+		const blocked = entry.stats.blocked ?? 0
 		nodes.ok.classList.toggle("retried", retried > 0)
-		nodes.ok.title = retried ? `${plural(retried, "lookup")} answered only after a retry` : ""
+		const notes = []
+		if (retried) notes.push(`${plural(retried, "lookup")} answered only after a retry`)
+		if (blocked) notes.push(`${plural(blocked, "lookup")} answered that the name has no address, as a filter does for a blocked name`)
+		nodes.ok.title = notes.join(". ")
 		nodes.ok.classList.toggle("bad", entry.stats.total > 0 && rate < 100)
 		nodes.li.classList.toggle("pending", !entry.done)
 		const topError = [...entry.errors.entries()].sort((a, b) => b[1] - a[1])[0]
@@ -963,7 +968,7 @@ function drawTrace(entry, canvas) {
 function renderDetail(entry, node) {
 	const s = entry.stats
 	const lines = [
-		`;; lookups ${s.total}   answered ${s.count}   failed ${s.errors}   retried ${s.retried ?? 0}`,
+		`;; lookups ${s.total}   answered ${s.count}   failed ${s.errors}   retried ${s.retried ?? 0}   blocked ${s.blocked ?? 0}`,
 		`;; min ${formatMs(s.min)}   mean ${formatMs(s.mean)}   max ${formatMs(s.max)}`,
 	]
 	if (transportOf(entry.server) !== "plain") lines.push(`;; ${transportLabel(entry.server)}`)
@@ -1013,7 +1018,7 @@ function renderLog() {
 				{ className: entry.error ? "failed" : "" },
 				el("span", { className: "who", textContent: entry.server }),
 				el("span", { className: "what", textContent: entry.domain }),
-				el("span", { className: "value", title: entry.error ?? "", textContent: entry.error ? errorKind(entry.error) : formatMs(entry.latency) }),
+				el("span", { className: "value", title: entry.error ?? "", textContent: entry.error ? errorKind(entry.error) : `${entry.blocked ? "blocked, " : ""}${formatMs(entry.latency)}` }),
 			),
 		),
 	)
@@ -1059,11 +1064,11 @@ function handleEvent(msg) {
 			if (!server) break
 			const failed = typeof detail.error === "string"
 			state.lookups += 1
-			state.log.unshift({ server: server.name, domain: detail.domain, latency: detail.latency, error: failed ? detail.error : null })
+			state.log.unshift({ server: server.name, domain: detail.domain, latency: detail.latency, blocked: detail.blocked === true, error: failed ? detail.error : null })
 			state.log.length = Math.min(state.log.length, LOG_LIMIT)
 
 			const entry = entryFor(server)
-			entry.stats = liveStats(entry.stats, detail.latency, failed, detail.attempts ?? 1)
+			entry.stats = liveStats(entry.stats, detail.latency, failed, detail.attempts ?? 1, detail.blocked === true)
 			if (failed) {
 				const kind = errorKind(detail.error)
 				entry.errors.set(kind, (entry.errors.get(kind) ?? 0) + 1)
@@ -1231,6 +1236,7 @@ function exportRows() {
 		answered: e.stats.count,
 		failed: e.stats.errors,
 		retried: e.stats.retried ?? 0,
+		blocked: e.stats.blocked ?? 0,
 		total: e.stats.total,
 		p50Ms: roundOrNull(median(e)),
 		p95Ms: roundOrNull(p95(e)),

@@ -13,16 +13,31 @@ import (
 type Reporter interface {
 	OnStart(totalResolvers int, domains []string)
 	OnResolverStart(server dnsclient.Server, index, total int)
-	OnQueryResult(server dnsclient.Server, domain string, latencyMs float64, attempts int, err error)
+	OnQueryResult(server dnsclient.Server, result QueryResult)
 	OnResolverDone(server dnsclient.Server, stats Stats, took time.Duration)
 	OnComplete(results []Result, err error)
 }
 
+// QueryResult is one measured lookup as a Reporter sees it.
+type QueryResult struct {
+	Domain    string
+	LatencyMs float64 // 0 when Err is set and Blocked is not
+	Attempts  int
+	// Blocked is set when the resolver answered that the name does not
+	// exist or has no A record. The lookup counts as answered, and Err
+	// holds the answer.
+	Blocked bool
+	Err     error
+}
+
+// Failed reports whether the lookup got no answer at all.
+func (q *QueryResult) Failed() bool { return q.Err != nil && !q.Blocked }
+
 // NoopReporter is used when no callbacks are needed.
 type NoopReporter struct{}
 
-func (NoopReporter) OnStart(_ int, _ []string)                                             {}
-func (NoopReporter) OnResolverStart(_ dnsclient.Server, _, _ int)                          {}
-func (NoopReporter) OnQueryResult(_ dnsclient.Server, _ string, _ float64, _ int, _ error) {}
-func (NoopReporter) OnResolverDone(_ dnsclient.Server, _ Stats, _ time.Duration)           {}
-func (NoopReporter) OnComplete(_ []Result, _ error)                                        {}
+func (NoopReporter) OnStart(_ int, _ []string)                                   {}
+func (NoopReporter) OnResolverStart(_ dnsclient.Server, _, _ int)                {}
+func (NoopReporter) OnQueryResult(_ dnsclient.Server, _ QueryResult)             {}
+func (NoopReporter) OnResolverDone(_ dnsclient.Server, _ Stats, _ time.Duration) {}
+func (NoopReporter) OnComplete(_ []Result, _ error)                              {}
