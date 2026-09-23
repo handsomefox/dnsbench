@@ -22,6 +22,7 @@ import (
 	"github.com/handsomefox/dnsbench/internal/bench"
 	"github.com/handsomefox/dnsbench/internal/catalog"
 	"github.com/handsomefox/dnsbench/internal/dnsclient"
+	"github.com/handsomefox/dnsbench/internal/termux"
 	"github.com/handsomefox/dnsbench/ui"
 )
 
@@ -346,14 +347,14 @@ func openBrowser(ctx context.Context, url string) error {
 	var cmd string
 	args := make([]string, 0, 3)
 
-	switch runtime.GOOS {
-	case "android":
+	switch {
+	case termux.Prefix() != "":
 		// Termux opens URLs in the Android browser with termux-open-url.
 		cmd = "termux-open-url"
-	case "windows":
+	case runtime.GOOS == "windows":
 		cmd = "cmd"
 		args = []string{"/c", "start"}
-	case "darwin":
+	case runtime.GOOS == "darwin":
 		cmd = "open"
 	default:
 		cmd = "xdg-open"
