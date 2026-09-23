@@ -1,9 +1,8 @@
-//go:build linux && !android
-
 package main
 
 import (
 	"os"
+	"runtime"
 )
 
 // androidCertDir holds Android's system CA certificates.
@@ -15,6 +14,11 @@ const androidCertDir = "/system/etc/security/cacerts"
 // DoT, DoH, and DoQ precheck would fail. It changes nothing when the user
 // set SSL_CERT_FILE or SSL_CERT_DIR, or when a Linux bundle exists.
 func useAndroidCerts() {
+	// An Android build (GOOS android) finds these certificates itself, and
+	// other systems have their own stores.
+	if runtime.GOOS != "linux" {
+		return
+	}
 	if os.Getenv("SSL_CERT_FILE") != "" || os.Getenv("SSL_CERT_DIR") != "" {
 		return
 	}
