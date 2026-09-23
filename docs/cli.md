@@ -46,6 +46,18 @@ The flag parser takes one or two leading hyphens. The values of `-output`,
 `-log`, `-family`, and `-proto` are case-insensitive. dnsbench exits `1` with a
 message on standard error when a value is out of range or a name is unknown.
 
+## While a run goes
+
+When standard error is a terminal and `-log` is `default`, dnsbench keeps one
+line on it up to date: the lookups done out of the planned ones, the failed
+lookups, the time so far, and an estimate of the time left. Log records print
+above the line. The report goes to standard output either way.
+
+Ctrl+C stops the run. dnsbench writes the report for the lookups that
+finished, says on standard error that it was interrupted, and exits with status
+`130`. Lookups that the interrupt cut short count neither as answered nor as
+failed. A second Ctrl+C exits at once, without a report.
+
 ## Lookup behavior
 
 `-t` bounds one attempt, not a lookup and not a run. A measured lookup makes

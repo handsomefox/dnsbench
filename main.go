@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -32,6 +33,10 @@ func main() {
 
 	slog.LogAttrs(ctx, slog.LevelDebug, "Starting", slog.Any("config", fmt.Sprintf("%#v", config)))
 	if err := run(ctx, config); err != nil {
+		if errors.Is(err, errInterrupted) {
+			// 128 + SIGINT, as a shell reports a process that Ctrl+C ended.
+			os.Exit(130)
+		}
 		slog.ErrorContext(ctx, "Benchmark failed", slog.Any("err", err))
 		os.Exit(1)
 	}

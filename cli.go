@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -63,41 +64,51 @@ func (l LogType) String() string {
 	}
 }
 
-func run(ctx context.Context, config *Config) error {
-	ctx, cancel := signal.NotifyContext(
-		ctx,
-		syscall.SIGINT,
-		syscall.SIGTERM,
-	)
-	defer cancel()
+// errInterrupted ends a run that the user stopped with Ctrl+C after its
+// partial report is written.
+var errInterrupted = errors.New("interrupted")
 
-	// Load domain list
+func run(ctx context.Context, config *Config) error {
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	// After the first interrupt, a second one ends the process at once.
+	context.AfterFunc(ctx, stop)
+
 	domains, err := catalog.LoadDomains(config.SitesFile)
 	if err != nil {
 		return fmt.Errorf("loading domains: %w", err)
 	}
-
-	slog.LogAttrs(ctx, slog.LevelInfo, "Loaded domains", slog.Int("count", len(domains)))
-
-	// Load DNS servers
 	servers, err := catalog.LoadServers(config.ResolversFile, config.filter())
 	if err != nil {
 		return fmt.Errorf("loading servers: %w", err)
 	}
 
-	slog.LogAttrs(ctx, slog.LevelInfo, "Loaded DNS servers", slog.Int("count", len(servers)))
-
-	// Run benchmark
-	results, err := bench.Run(ctx, config.benchOptions(), servers, domains, bench.NoopReporter{})
-	if err != nil {
+	var reporter bench.Reporter = bench.NoopReporter{}
+	var p *progress
+	if config.LogType == LogDefault && isTerminal(os.Stderr) {
+		p = newProgress(os.Stderr, len(servers)*len(domains)*config.Repeats)
+		slog.SetDefault(slog.New(progressHandler{next: slog.Default().Handler(), p: p}))
+		p.run()
+		reporter = p
+	}
+	results, err := bench.Run(ctx, config.benchOptions(), servers, domains, reporter)
+	if p != nil {
+		p.finish()
+	}
+	interrupted := err != nil && ctx.Err() != nil && len(results) > 0
+	if err != nil && !interrupted {
 		return fmt.Errorf("benchmark run failed: %w", err)
 	}
+	if interrupted {
+		fmt.Fprintln(os.Stderr, "Interrupted. The report covers the lookups that finished.")
+	}
 
-	// Print summary
 	if err := report.Write(os.Stdout, results, config.OutputType); err != nil {
 		return fmt.Errorf("writing the report: %w", err)
 	}
-
+	if interrupted {
+		return errInterrupted
+	}
 	return nil
 }
 

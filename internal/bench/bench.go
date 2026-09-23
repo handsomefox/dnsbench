@@ -365,7 +365,7 @@ func (r *resolverRun) record(ctx context.Context, domain string, result dnsclien
 	if done {
 		stats := r.stats()
 		took := time.Since(r.start)
-		slog.LogAttrs(ctx, slog.LevelInfo, "Finished resolver",
+		slog.LogAttrs(ctx, slog.LevelDebug, "Finished resolver",
 			slog.String("name", r.server.Name),
 			slog.String("addr", r.server.Addr),
 			slog.Float64("success_rate", stats.SuccessRate()*100),
