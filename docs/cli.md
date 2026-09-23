@@ -32,7 +32,7 @@ EDNS UDP size of 1232 bytes, so answers rarely need the TCP retry.
 | `-t duration` | `3s` | Timeout for one lookup attempt. Minimum `100ms`. Takes Go durations such as `1500ms` and `2s`. |
 | `-retries int` | `2` | Retries of a failed lookup attempt. `0` disables them. |
 | `-c int` | `max(runtime.NumCPU()/2, 2)` | Maximum lookups in flight at once, across all resolvers. Minimum `1`. |
-| `-output string` | `default` | Report format: `default`, `csv`, `table`, or `json` |
+| `-output string` | `default` | Report format: `table`, `csv`, or `json`. `default` is `table`. |
 | `-log string` | `default` | Logging level: `default`, `verbose`, or `disabled` |
 | `-major` | `false` | Uses only the major providers from the built-in list. `-f` overrides it. |
 | `-primary` | `false` | Uses only the first address of each built-in provider, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |
@@ -179,16 +179,21 @@ median latency. The median ignores a few slow lookups that would pull the mean
 up. Resolvers with no successful lookup form a separate failed group. All
 latencies are milliseconds and count successful lookups only.
 
-The `table` and `csv` reports show, for each resolver, the success rate, the
-retried lookups, the median, the 95th percentile, the mean, the fastest and
-slowest lookups, and the planned lookups.
+Every format writes the whole report to standard output, so a redirect
+captures every resolver. Logs and errors go to standard error.
 
 | Format | Output |
 | --- | --- |
-| `default` | Tables and a summary on standard output |
-| `table` | Successful resolvers on standard output, failed resolvers on standard error |
-| `csv` | Successful resolvers as CSV on standard output, a heading and a second CSV for failed resolvers on standard error |
-| `json` | One report object on standard output with `summary`, `results`, and `failures` |
+| `table` | A table of the resolvers that answered, then a list of the ones that did not, then a count of each. `default` is the same. |
+| `csv` | One header row and one row per resolver, the failed ones last with empty latency cells |
+| `json` | One report object with `summary`, `results`, and `failures` |
+
+The table shows, for each resolver, the success rate, the retried lookups, the
+median, the 95th percentile, the mean, the fastest and slowest lookups, and the
+planned lookups. The CSV columns are `Resolver`, `Address`, `Transport`,
+`Success Rate`, `Answered`, `Failed`, `Retried`, `Median (ms)`, `P95 (ms)`,
+`Mean (ms)`, `Min (ms)`, `Max (ms)`, and `Total Queries`. The CSV quotes a
+field that holds a comma or a quote.
 
 ### JSON fields
 

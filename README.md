@@ -123,10 +123,10 @@ see [input files](docs/cli.md#input-files).
 ./bin/dnsbench -log disabled -output csv > results.csv
 ```
 
-CSV writes the resolvers that answered to standard output and the ones that
-failed to standard error, so the redirect above captures only the successes.
-JSON puts both groups in one document, under `results` and `failures`. A
-resolver with no successful lookup has `null` for every latency field. See
+Both reports go to standard output and hold every resolver. The CSV lists the
+resolvers with no answer last, with empty latency cells. JSON puts the two
+groups under `results` and `failures`, and a resolver with no successful lookup
+has `null` for every latency field. See
 [report formats](docs/cli.md#report-formats).
 
 ## Start the Web UI
@@ -135,8 +135,8 @@ resolver with no successful lookup has `null` for every latency field. See
 ./bin/dnsbench -ui
 ```
 
-dnsbench tries to open your browser at that address. If it does not, open
-<http://127.0.0.1:8080> yourself. Pick a preset such as **Quick check** or
+dnsbench tries to open <http://127.0.0.1:8080> in your browser. If it does not,
+open that address yourself. Pick a preset such as **Quick check** or
 **Plain vs encrypted**, or build a selection yourself: filter by address family,
 transport, and kind of resolver, search, and tick providers or single
 addresses. Resolvers you add under **Add your own resolvers** join the

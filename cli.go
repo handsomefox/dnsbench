@@ -94,7 +94,9 @@ func run(ctx context.Context, config *Config) error {
 	}
 
 	// Print summary
-	report.Print(results, config.OutputType)
+	if err := report.Write(os.Stdout, results, config.OutputType); err != nil {
+		return fmt.Errorf("writing the report: %w", err)
+	}
 
 	return nil
 }
@@ -116,7 +118,7 @@ func parseFlags() *Config {
 	flag.DurationVar(&config.LookupTimeout, "t", 3*time.Second, "Timeout for one lookup attempt (e.g. 1500ms, 2s)")
 	flag.IntVar(&config.Repeats, "n", 10, "Number of times each domain is queried")
 	flag.StringVar(&config.SitesFile, "s", "", "File of domains, one per line, that replaces the built-in list")
-	flag.StringVar(&outputType, "output", "default", "Output format: default, csv, table, or json")
+	flag.StringVar(&outputType, "output", "default", "Report format: table, csv, or json. default is table")
 	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
 	flag.IntVar(&config.Retries, "retries", 2, "Retries of a failed lookup attempt, after a short wait. 0 disables them")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum lookups in flight at once, across all resolvers")
