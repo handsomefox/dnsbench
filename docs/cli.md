@@ -3,8 +3,9 @@
 dnsbench benchmarks one resolver at a time. For each resolver it runs the
 hostname lookups concurrently, up to `-c` at once. A plain DNS resolver gets its
 queries over UDP port 53, and over TCP when a UDP answer arrives truncated. A
-DNS over TLS (DoT) resolver gets them over TLS on TCP port 853. The built-in
-resolver and domain lists are in [`data.go`](../data.go).
+DNS over TLS (DoT) resolver gets them over TLS on TCP port 853. A DNS over
+HTTPS (DoH) resolver gets them as HTTPS POST requests on TCP port 443. The
+built-in resolver and domain lists are in [`data.go`](../data.go).
 
 ## Flags
 
@@ -22,7 +23,7 @@ resolver and domain lists are in [`data.go`](../data.go).
 | `-major` | `false` | Uses only the major providers from the built-in list. `-f` overrides it. |
 | `-primary` | `false` | Uses only the first address of each built-in provider, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |
 | `-family string` | `ipv4` | Address family of the built-in resolvers: `ipv4`, `ipv6`, or `all`. `-f` overrides it. |
-| `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, or `all`. `-f` overrides it. |
+| `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, `doh`, or `all`. `-f` overrides it. |
 | `-warmup int` | `0` | Warmup lookups before each measured lookup. Zero or less disables warmup. |
 | `-ui` | `false` | Serves the Web UI instead of running a CLI benchmark |
 | `-listen string` | `:8080` | Web UI listen address. The default accepts connections on every interface. |
@@ -46,8 +47,8 @@ can fix:
 - It connects a UDP socket to the resolver. That sends nothing, but it fails at
   once when the host has no route to the address, as with an IPv6 resolver on
   an IPv4-only host.
-- For a DoT resolver, it makes one TLS handshake and checks the certificate
-  against the TLS name. Other handshake failures, such as a timeout, are left
+- For a DoT or DoH resolver, it makes one TLS handshake and checks the
+  certificate against the TLS name or the host in the DoH URL. Other handshake failures, such as a timeout, are left
   to the lookups and their retries.
 
 If either check fails, dnsbench logs a warning and counts every planned lookup
@@ -74,6 +75,20 @@ pays that cost once. dnsbench keeps TLS sessions for each resolver, so the
 handshakes after the first resume the session and skip the certificate
 exchange. DoT latencies are comparable with each other, not with plain DNS.
 
+### DNS over HTTPS
+
+dnsbench sends each query to the DoH URL as an HTTPS POST with the
+`application/dns-message` body that RFC 8484 describes. It connects to the
+resolver's address, not to whatever the URL's host resolves to, and sends the
+host in the URL as the TLS server name and the HTTP `Host`.
+
+The HTTP client keeps its connections open between lookups and uses HTTP/2
+where the server offers it. Only the first lookups against a DoH resolver pay
+for the TCP and TLS handshakes, so DoH latency mostly measures a warm
+connection. That is the opposite of DoT, which pays for both handshakes on
+every lookup, so a DoH resolver can look faster than the DoT service of the
+same provider for that reason alone.
+
 ## Input files
 
 Both formats trim whitespace, then skip blank lines and lines that start with
@@ -81,17 +96,21 @@ Both formats trim whitespace, then skip blank lines and lines that start with
 
 ### Resolver file
 
-Each line is `name;ip` for plain DNS or `name;ip;tls-name` for DoT:
+Each line is `name;ip` for plain DNS, `name;ip;tls-name` for DoT, or
+`name;ip;https-url` for DoH. A third field that starts with `https://` is a DoH
+URL. Any other third field is a TLS name:
 
 ```text
 Cloudflare;1.1.1.1
 Cloudflare-DoT;1.1.1.1;cloudflare-dns.com
+Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query
 Router;fe80::1%eth0
 ```
 
 The name and address must be nonempty, and the address must be an IPv4 or IPv6
 literal with no port. A link-local IPv6 address needs its zone, as in
-`fe80::1%eth0`. The TLS name is the name on the resolver's certificate. One bad
+`fe80::1%eth0`. The TLS name is the name on the resolver's certificate. A DoH
+URL must use `https` and name a host. One bad
 line stops the benchmark with an error naming the line number. A file with no
 valid resolvers is an error too.
 
@@ -125,7 +144,8 @@ Each entry in `results` and `failures` has these fields:
 | --- | --- |
 | `server.name` | Resolver name |
 | `server.addr` | Resolver IPv4 or IPv6 address |
-| `server.tlsName` | Certificate name of a DoT resolver. Absent for plain DNS. |
+| `server.tlsName` | Certificate name of a DoT resolver. Absent otherwise. |
+| `server.dohURL` | URL of a DoH resolver. Absent otherwise. |
 | `stats.min` | Fastest successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.max` | Slowest successful lookup, in milliseconds. `null` when no lookup succeeded. |
 | `stats.mean` | Mean successful lookup, in milliseconds. `null` when no lookup succeeded. |

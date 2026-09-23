@@ -42,15 +42,29 @@ function el(tag, props = {}, ...children) {
 	return node
 }
 
-// serverKey tells results apart. Plain DNS and DoT can share an address.
+function transportOf(server) {
+	if (server.dohURL) return "doh"
+	if (server.tlsName) return "dot"
+	return "plain"
+}
+
+// serverKey tells results apart. Plain DNS, DoT, and DoH can share an
+// address.
 function serverKey(server) {
-	return `${server.tlsName ? "dot" : "plain"} ${server.addr}`
+	return `${transportOf(server)} ${server.addr}`
 }
 
 function serverTags(server) {
 	const tags = [server.addr.includes(":") ? "IPv6" : "IPv4"]
 	if (server.tlsName) tags.push("DoT")
+	if (server.dohURL) tags.push("DoH")
 	return tags
+}
+
+function transportLabel(server) {
+	if (server.dohURL) return `DoH at ${server.dohURL}`
+	if (server.tlsName) return `DoT with certificate name ${server.tlsName}`
+	return "plain DNS"
 }
 
 function formatMs(value) {
@@ -93,15 +107,16 @@ function parseLines(text) {
 		.filter((line) => line && !line.startsWith("#"))
 }
 
-// parseResolvers reads "name;ip" and "name;ip;tls-name" lines, the format
-// of a -f file. A line with no ";" is an address. The server validates
-// every field and names unnamed resolvers.
+// parseResolvers reads the lines of a -f file: "name;ip", "name;ip;tls-name",
+// or "name;ip;https-url". A line with no ";" is an address. The server
+// validates every field and names unnamed resolvers.
 function parseResolvers(text) {
 	return parseLines(text).map((line) => {
 		const parts = line.split(";").map((p) => p.trim())
 		if (parts.length === 1) return { name: "", addr: parts[0] }
 		const server = { name: parts[0], addr: parts[1] }
-		if (parts[2]) server.tlsName = parts[2]
+		if (parts[2]?.startsWith("https://")) server.dohURL = parts[2]
+		else if (parts[2]) server.tlsName = parts[2]
 		return server
 	})
 }
@@ -148,7 +163,7 @@ function renderConfig() {
 				{},
 				el(
 					"label",
-					{ title: `${s.name}, ${s.addr}, ${s.tlsName ? `DoT with certificate name ${s.tlsName}` : "plain DNS"}` },
+					{ title: `${s.name}, ${s.addr}, ${transportLabel(s)}` },
 					box,
 					el("span", { className: "name", textContent: s.name }),
 					el("span", { className: "addr", textContent: s.addr }),
@@ -484,7 +499,7 @@ function renderDetail(entry, node) {
 		`;; lookups ${s.total}   answered ${s.count}   failed ${s.errors}`,
 		`;; min ${formatMs(s.min)}   mean ${formatMs(s.mean)}   max ${formatMs(s.max)}`,
 	]
-	if (entry.server.tlsName) lines.push(`;; DNS over TLS, certificate name ${entry.server.tlsName}`)
+	if (entry.server.tlsName || entry.server.dohURL) lines.push(`;; ${transportLabel(entry.server)}`)
 
 	const slow = [...entry.domains.entries()]
 		.map(([domain, values]) => {
@@ -742,7 +757,8 @@ function exportRows() {
 		name: e.server.name,
 		addr: e.server.addr,
 		tlsName: e.server.tlsName ?? "",
-		transport: e.server.tlsName ? "dot" : "plain",
+		dohURL: e.server.dohURL ?? "",
+		transport: transportOf(e.server),
 		successPct: Number(successRate(e.stats).toFixed(2)),
 		answered: e.stats.count,
 		failed: e.stats.errors,

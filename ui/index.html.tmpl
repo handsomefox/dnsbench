@@ -60,7 +60,8 @@
 						<div class="segmented small" role="radiogroup" aria-label="Transport">
 							<label><input type="radio" name="transport" value="plain" {{if eq .Options.Transport "plain"}}checked{{end}}><span>Plain</span></label>
 							<label><input type="radio" name="transport" value="dot" {{if eq .Options.Transport "dot"}}checked{{end}}><span>DoT</span></label>
-							<label><input type="radio" name="transport" value="all" {{if eq .Options.Transport "all"}}checked{{end}}><span>Both</span></label>
+							<label><input type="radio" name="transport" value="doh" {{if eq .Options.Transport "doh"}}checked{{end}}><span>DoH</span></label>
+							<label><input type="radio" name="transport" value="all" {{if eq .Options.Transport "all"}}checked{{end}}><span>All</span></label>
 						</div>
 						<label class="check"><input type="checkbox" id="only-major" {{if .Options.OnlyMajor}}checked{{end}}> Major providers only</label>
 						<label class="check" title="Most providers list two addresses that perform alike. Test only the first, such as Cloudflare-1, to halve the run."><input type="checkbox" id="primary-only" {{if .Options.PrimaryOnly}}checked{{end}}> First address only</label>
@@ -73,8 +74,8 @@
 				</div>
 
 				<div id="custom-options" hidden>
-					<textarea id="custom-resolvers" rows="7" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com&#10;Router;fe80::1%eth0"></textarea>
-					<p class="hint">One resolver per line: <code>name;ip</code> for plain DNS, or <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on its certificate. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
+					<textarea id="custom-resolvers" rows="7" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com&#10;Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query&#10;Router;fe80::1%eth0"></textarea>
+					<p class="hint">One resolver per line: <code>name;ip</code> for plain DNS, <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on its certificate, or <code>name;ip;https-url</code> for DNS over HTTPS. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
 				</div>
 			</section>
 

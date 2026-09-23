@@ -15,11 +15,14 @@ import (
 
 // DNSServer represents a resolver to be benchmarked. A resolver with a
 // TLSName is queried with DNS over TLS on port 853, and TLSName is the name
-// its certificate must match. Without one it gets plain DNS on port 53.
+// its certificate must match. A resolver with a DoHURL is queried with DNS
+// over HTTPS at that URL, through Addr on port 443. Without either it gets
+// plain DNS on port 53. At most one of TLSName and DoHURL is set.
 type DNSServer struct {
 	Name    string `json:"name"`
 	Addr    string `json:"addr"`
 	TLSName string `json:"tlsName,omitempty"`
+	DoHURL  string `json:"dohURL,omitempty"`
 }
 
 // BenchmarkResult contains the results for a single resolver

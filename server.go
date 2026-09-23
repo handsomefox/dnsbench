@@ -61,7 +61,7 @@ func builtinsByFilter() map[string][]DNSServer {
 	for _, onlyMajor := range []bool{false, true} {
 		for _, primaryOnly := range []bool{false, true} {
 			for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6, FamilyAll} {
-				for _, transport := range []Transport{TransportPlain, TransportDoT, TransportAll} {
+				for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportAll} {
 					f := builtinFilter{onlyMajor: onlyMajor, primaryOnly: primaryOnly, family: family, transport: transport}
 					lists[builtinsKey(f)] = builtinServers(f)
 				}
@@ -314,6 +314,12 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 		}
 		if srv.TLSName != "" && !isValidDomain(srv.TLSName) {
 			return nil, nil, nil, fmt.Errorf("invalid TLS name %q for resolver %s", srv.TLSName, srv.Addr)
+		}
+		if srv.DoHURL != "" && !isValidDoHURL(srv.DoHURL) {
+			return nil, nil, nil, fmt.Errorf("invalid DoH URL %q for resolver %s: want an https URL", srv.DoHURL, srv.Addr)
+		}
+		if srv.TLSName != "" && srv.DoHURL != "" {
+			return nil, nil, nil, fmt.Errorf("resolver %s has both a TLS name and a DoH URL: pick one", srv.Addr)
 		}
 		if srv.Name == "" {
 			servers[i].Name = srv.Addr

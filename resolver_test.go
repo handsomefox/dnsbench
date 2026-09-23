@@ -13,6 +13,8 @@ import (
 	"io"
 	"math/big"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -276,12 +278,96 @@ func TestResolver_PrecheckCertificate(t *testing.T) {
 	}
 }
 
+// startFakeDoH serves DNS over HTTPS at /dns-query with httptest's
+// certificate, which is valid for example.com.
+func startFakeDoH(t *testing.T) (hostPort string, roots *x509.CertPool, queries *atomic.Int32) {
+	t.Helper()
+	queries = &atomic.Int32{}
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/dns-query" || r.Header.Get("Content-Type") != "application/dns-message" {
+			http.Error(w, "not a DoH request", http.StatusBadRequest)
+			return
+		}
+		query, err := io.ReadAll(r.Body)
+		if err != nil {
+			return
+		}
+		queries.Add(1)
+		answer, ok := fakeAnswer(query, false)
+		if !ok {
+			http.Error(w, "bad query", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/dns-message")
+		if _, err := w.Write(answer); err != nil {
+			return
+		}
+	}))
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	t.Cleanup(ts.Close)
+
+	roots = x509.NewCertPool()
+	roots.AddCert(ts.Certificate())
+	return ts.Listener.Addr().String(), roots, queries
+}
+
+func TestResolver_DNSOverHTTPS(t *testing.T) {
+	hostPort, roots, queries := startFakeDoH(t)
+	tlsConfig := func(name string) *tls.Config {
+		return &tls.Config{ServerName: name, RootCAs: roots, MinVersion: tls.VersionTLS12}
+	}
+
+	t.Run("answers", func(t *testing.T) {
+		r := newDoHResolver("127.0.0.1", "https://example.com/dns-query", hostPort, tlsConfig("example.com"), 2)
+		for range 3 {
+			if _, err := r.QueryDNS(t.Context(), "doh.example.", 2*time.Second, ResolverRetryDisabled); err != nil {
+				t.Fatalf("QueryDNS() error = %v", err)
+			}
+		}
+		// Three lookups, each asking for A and AAAA.
+		if got := queries.Load(); got != 6 {
+			t.Errorf("server saw %d queries, want 6", got)
+		}
+	})
+
+	t.Run("NXDOMAIN is final", func(t *testing.T) {
+		r := newDoHResolver("127.0.0.1", "https://example.com/dns-query", hostPort, tlsConfig("example.com"), 1)
+		start := time.Now()
+		if _, err := r.QueryDNS(t.Context(), "nx.example.", 2*time.Second, ResolverRetryEnabled); err == nil {
+			t.Fatal("QueryDNS() succeeded for a name that does not exist")
+		}
+		if took := time.Since(start); took > 900*time.Millisecond {
+			t.Errorf("QueryDNS() took %v, so it retried a final answer", took)
+		}
+	})
+
+	t.Run("HTTP error", func(t *testing.T) {
+		r := newDoHResolver("127.0.0.1", "https://example.com/wrong-path", hostPort, tlsConfig("example.com"), 1)
+		_, err := r.QueryDNS(t.Context(), "doh.example.", 2*time.Second, ResolverRetryDisabled)
+		if err == nil || !strings.Contains(err.Error(), "400 Bad Request") {
+			t.Errorf("QueryDNS() error = %v, want it to report the 400", err)
+		}
+	})
+
+	t.Run("certificate for another name", func(t *testing.T) {
+		r := newDoHResolver("127.0.0.1", "https://other.test/dns-query", hostPort, tlsConfig("other.test"), 1)
+		err := r.Precheck(t.Context())
+		if err == nil || !strings.Contains(err.Error(), "TLS certificate") {
+			t.Errorf("Precheck() = %v, want a certificate error", err)
+		}
+	})
+}
+
 func TestNewResolver_Ports(t *testing.T) {
 	if got := NewResolver(DNSServer{Addr: "2001:db8::1"}, 1).hostPort; got != "[2001:db8::1]:53" {
 		t.Errorf("plain resolver dials %s, want [2001:db8::1]:53", got)
 	}
 	if got := NewResolver(DNSServer{Addr: "192.0.2.1", TLSName: "dns.test"}, 1).hostPort; got != "192.0.2.1:853" {
 		t.Errorf("DoT resolver dials %s, want 192.0.2.1:853", got)
+	}
+	if got := NewResolver(DNSServer{Addr: "2001:db8::1", DoHURL: "https://dns.test/q"}, 1).hostPort; got != "[2001:db8::1]:443" {
+		t.Errorf("DoH resolver dials %s, want [2001:db8::1]:443", got)
 	}
 }
 

@@ -12,9 +12,9 @@ import (
 )
 
 func TestBuiltinServers(t *testing.T) {
-	var plain4, plain6, dot4, dot6, majorPlain4, primaryPlain4 int
+	var plain4, plain6, dot4, dot6, doh4, doh6, majorPlain4, primaryPlain4 int
 	for _, p := range providers {
-		if !p.dotOnly {
+		if !p.encryptedOnly {
 			plain4 += len(p.ipv4)
 			primaryPlain4 += min(len(p.ipv4), 1)
 			plain6 += len(p.ipv6)
@@ -25,6 +25,10 @@ func TestBuiltinServers(t *testing.T) {
 		if p.tlsName != "" {
 			dot4 += len(p.ipv4)
 			dot6 += len(p.ipv6)
+		}
+		if p.dohURL != "" {
+			doh4 += len(p.ipv4)
+			doh6 += len(p.ipv6)
 		}
 	}
 
@@ -39,7 +43,8 @@ func TestBuiltinServers(t *testing.T) {
 		{name: "major", filter: builtinFilter{onlyMajor: true}, want: majorPlain4},
 		{name: "first address", filter: builtinFilter{primaryOnly: true}, want: primaryPlain4},
 		{name: "DoT", filter: builtinFilter{transport: TransportDoT}, want: dot4},
-		{name: "everything", filter: builtinFilter{family: FamilyAll, transport: TransportAll}, want: plain4 + plain6 + dot4 + dot6},
+		{name: "DoH over IPv6", filter: builtinFilter{family: FamilyIPv6, transport: TransportDoH}, want: doh6},
+		{name: "everything", filter: builtinFilter{family: FamilyAll, transport: TransportAll}, want: plain4 + plain6 + dot4 + dot6 + doh4 + doh6},
 	}
 
 	for _, tt := range tests {
@@ -65,10 +70,19 @@ func TestBuiltinServers(t *testing.T) {
 				if (s.TLSName != "") != strings.Contains(s.Name, "-DoT-") {
 					t.Errorf("%s has TLS name %q: the -DoT- name and the transport disagree", s.Name, s.TLSName)
 				}
+				if (s.DoHURL != "") != strings.Contains(s.Name, "-DoH-") {
+					t.Errorf("%s has DoH URL %q: the -DoH- name and the transport disagree", s.Name, s.DoHURL)
+				}
+				if s.DoHURL != "" && !isValidDoHURL(s.DoHURL) {
+					t.Errorf("%s has invalid DoH URL %q", s.Name, s.DoHURL)
+				}
 				if tt.filter.family == FamilyIPv4 && addr.Is6() || tt.filter.family == FamilyIPv6 && addr.Is4() {
 					t.Errorf("%s (%s) does not belong to family %s", s.Name, s.Addr, tt.filter.family)
 				}
-				if tt.filter.transport == TransportPlain && s.TLSName != "" || tt.filter.transport == TransportDoT && s.TLSName == "" {
+				plain := s.TLSName == "" && s.DoHURL == ""
+				if tt.filter.transport == TransportPlain && !plain ||
+					tt.filter.transport == TransportDoT && s.TLSName == "" ||
+					tt.filter.transport == TransportDoH && s.DoHURL == "" {
 					t.Errorf("%s does not belong to transport %s", s.Name, tt.filter.transport)
 				}
 				if tt.filter.primaryOnly && !strings.HasSuffix(s.Name, "-1") {
@@ -122,15 +136,17 @@ func TestLoadServers(t *testing.T) {
 	}{
 		{
 			name: "plain, DoT, and IPv6",
-			file: "# comment\nCF;1.1.1.1\n\nCF-DoT; 1.1.1.1 ; cloudflare-dns.com\nRouter;fe80::1%eth0\n",
+			file: "# comment\nCF;1.1.1.1\n\nCF-DoT; 1.1.1.1 ; cloudflare-dns.com\nCF-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query\nRouter;fe80::1%eth0\n",
 			want: []DNSServer{
 				{Name: "CF", Addr: "1.1.1.1"},
 				{Name: "CF-DoT", Addr: "1.1.1.1", TLSName: "cloudflare-dns.com"},
+				{Name: "CF-DoH", Addr: "1.1.1.1", DoHURL: "https://cloudflare-dns.com/dns-query"},
 				{Name: "Router", Addr: "fe80::1%eth0"},
 			},
 		},
 		{name: "too many fields", file: "a;1.1.1.1;x.example;extra\n", wantErr: "invalid format at line 1"},
 		{name: "bad TLS name", file: "a;1.1.1.1;not a name\n", wantErr: "invalid TLS name at line 1"},
+		{name: "DoH URL without host", file: "a;1.1.1.1;https:///dns-query\n", wantErr: "invalid DoH URL at line 1"},
 		{name: "hostname address", file: "a;dns.google\n", wantErr: "invalid IP address at line 1"},
 	}
 
@@ -179,7 +195,7 @@ func TestParseFamily(t *testing.T) {
 }
 
 func TestParseTransport(t *testing.T) {
-	for in, want := range map[string]Transport{"plain": TransportPlain, "DoT": TransportDoT, "all": TransportAll} {
+	for in, want := range map[string]Transport{"plain": TransportPlain, "DoT": TransportDoT, "DoH": TransportDoH, "all": TransportAll} {
 		got, err := parseTransport(in)
 		if err != nil || got != want {
 			t.Errorf("parseTransport(%q) = %v, %v, want %v", in, got, err, want)
@@ -188,8 +204,8 @@ func TestParseTransport(t *testing.T) {
 			t.Errorf("Transport(%d).String() = %q, want %q", got, got.String(), strings.ToLower(in))
 		}
 	}
-	if _, err := parseTransport("doh"); err == nil {
-		t.Error(`parseTransport("doh") returned no error`)
+	if _, err := parseTransport("http"); err == nil {
+		t.Error(`parseTransport("http") returned no error`)
 	}
 }
 

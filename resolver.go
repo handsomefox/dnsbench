@@ -1,12 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"math"
 	"net"
+	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -30,6 +36,12 @@ type Resolver struct {
 // NewResolver queries server with plain DNS on port 53, or with DNS over
 // TLS on port 853 when server.TLSName is set.
 func NewResolver(server DNSServer, concurrency int) *Resolver {
+	if server.DoHURL != "" {
+		// isValidDoHURL has checked the URL, so the error cannot happen.
+		u, _ := url.Parse(server.DoHURL) //nolint:errcheck // validated by isValidDoHURL
+		tlsConfig := &tls.Config{ServerName: u.Hostname(), MinVersion: tls.VersionTLS12}
+		return newDoHResolver(server.Addr, server.DoHURL, net.JoinHostPort(server.Addr, "443"), tlsConfig, concurrency)
+	}
 	if server.TLSName == "" {
 		return newResolver(server.Addr, net.JoinHostPort(server.Addr, "53"), nil, concurrency)
 	}
@@ -80,12 +92,129 @@ func newResolver(serverAddr, hostPort string, tlsConfig *tls.Config, concurrency
 	}
 }
 
+// newDoHResolver sends every query as an HTTPS POST to dohURL, as RFC 8484
+// describes. It connects to hostPort, not to the address the URL's host
+// resolves to, so the benchmark measures the address under test. The HTTP
+// client keeps its connections, so only the first lookups pay for the
+// TCP and TLS handshakes.
+func newDoHResolver(serverAddr, dohURL, hostPort string, tlsConfig *tls.Config, concurrency int) *Resolver {
+	dialer := &net.Dialer{}
+	if concurrency < 1 {
+		concurrency = 1
+	}
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return dialer.DialContext(ctx, network, hostPort)
+			},
+			TLSClientConfig:     tlsConfig,
+			ForceAttemptHTTP2:   true,
+			MaxIdleConnsPerHost: concurrency,
+		},
+	}
+	return &Resolver{
+		netResolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return &dohConn{ctx: ctx, client: client, url: dohURL}, nil
+			},
+		},
+		dialer:      dialer,
+		tlsDialer:   &tls.Dialer{NetDialer: dialer, Config: tlsConfig},
+		hostPort:    hostPort,
+		serverAddr:  serverAddr,
+		concurrency: concurrency,
+		sem:         make(chan struct{}, concurrency),
+	}
+}
+
+// dohConn lets Go's resolver speak DNS over HTTPS. The resolver writes
+// each query to a connection that is not a net.PacketConn with the TCP
+// framing: a two-byte length, then the message. dohConn posts each message
+// to the DoH URL and frames the answer the same way for the resolver to
+// read back.
+type dohConn struct {
+	ctx     context.Context
+	client  *http.Client
+	url     string
+	pending bytes.Buffer // written bytes that do not yet form a message
+	answers bytes.Buffer // framed answers the resolver has not read
+}
+
+func (c *dohConn) Write(b []byte) (int, error) {
+	c.pending.Write(b)
+	for c.pending.Len() >= 2 {
+		size := int(binary.BigEndian.Uint16(c.pending.Bytes()))
+		if c.pending.Len() < 2+size {
+			break
+		}
+		c.pending.Next(2)
+		answer, err := c.exchange(bytes.Clone(c.pending.Next(size)))
+		if err != nil {
+			return 0, err
+		}
+		c.answers.Write(binary.BigEndian.AppendUint16(nil, uint16(len(answer)))) //nolint:gosec // exchange caps answers at 65535 bytes
+		c.answers.Write(answer)
+	}
+	return len(b), nil
+}
+
+func (c *dohConn) exchange(query []byte) ([]byte, error) {
+	req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, c.url, bytes.NewReader(query))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/dns-message")
+	req.Header.Set("Accept", "application/dns-message")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := resp.Body.Close(); cerr != nil {
+			slog.LogAttrs(c.ctx, slog.LevelDebug, "Failed to close DoH response", slogErr(cerr))
+		}
+	}()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("DoH server answered %s", resp.Status)
+	}
+	answer, err := io.ReadAll(io.LimitReader(resp.Body, math.MaxUint16+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(answer) > math.MaxUint16 {
+		return nil, errors.New("DoH answer is larger than a DNS message can be")
+	}
+	return answer, nil
+}
+
+func (c *dohConn) Read(b []byte) (int, error) {
+	if c.answers.Len() == 0 {
+		return 0, io.EOF
+	}
+	return c.answers.Read(b)
+}
+
+func (c *dohConn) Close() error                     { return nil }
+func (c *dohConn) LocalAddr() net.Addr              { return dohAddr(c.url) }
+func (c *dohConn) RemoteAddr() net.Addr             { return dohAddr(c.url) }
+func (c *dohConn) SetDeadline(time.Time) error      { return nil } // the request context carries the deadline
+func (c *dohConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *dohConn) SetWriteDeadline(time.Time) error { return nil }
+
+type dohAddr string
+
+func (a dohAddr) Network() string { return "https" }
+func (a dohAddr) String() string  { return string(a) }
+
 // Precheck returns an error when no lookup against the resolver can
 // succeed, however often it is retried.
 //
 // Connecting a UDP socket sends nothing, but it fails at once when there is
-// no route, as with an IPv6 resolver on an IPv4-only host. For DoT, one TLS
-// handshake also catches a certificate that does not match the TLS name.
+// no route, as with an IPv6 resolver on an IPv4-only host. For DoT and DoH,
+// one TLS handshake also catches a certificate that does not match the
+// server name.
 // Any other handshake failure, such as a timeout, is left to the lookups
 // and their retries.
 func (r *Resolver) Precheck(ctx context.Context) error {

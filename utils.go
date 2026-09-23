@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/netip"
+	"net/url"
 	"os"
 	"runtime"
 	"sort"
@@ -134,6 +135,13 @@ func printDefaultSummary(valid, failed []BenchmarkResult) {
 		fmt.Printf("Summary: %d resolvers tested successfully, %d failed\n", len(valid), len(failed))
 		fmt.Printf("Each resolver processed %d total queries\n", valid[0].Stats.Total)
 	}
+}
+
+// isValidDoHURL reports whether s is an https URL with a host and no user
+// info, which is what a DoH resolver needs.
+func isValidDoHURL(s string) bool {
+	u, err := url.Parse(s)
+	return err == nil && u.Scheme == "https" && u.Host != "" && u.User == nil
 }
 
 // finalError marks an error that no retry can change, such as an answer
