@@ -41,7 +41,7 @@
 				<p class="preset-detail" id="preset-detail"></p>
 			</section>
 
-			<section class="block">
+			<section class="block resolvers">
 				<div class="block-head">
 					<h2>Resolvers</h2>
 					<span class="count" id="resolver-count">0 selected</span>
@@ -80,7 +80,7 @@
 				</div>
 				<ul id="builtin-list" class="picker"></ul>
 
-				<details class="custom" id="custom-block">
+				<details class="disclose" id="custom-block">
 					<summary>Add your own resolvers <span class="count" id="custom-count"></span></summary>
 					<textarea id="custom-resolvers" rows="5" spellcheck="false" placeholder="Router;192.168.1.1&#10;Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query&#10;AdGuard-DoQ;94.140.14.14;quic://dns.adguard-dns.com"></textarea>
 					<p class="hint">One per line, added to the selection above: <code>name;ip</code> for plain DNS, <code>name;ip;tls-name</code> for DoT, <code>name;ip;https-url</code> for DoH, or <code>name;ip;quic://tls-name</code> for DoQ. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
@@ -90,42 +90,62 @@
 
 			<section class="block">
 				<div class="block-head">
-					<h2><label for="domains">Domains</label></h2>
+					<h2>Domains and lookups</h2>
 					<span class="count"><span id="domain-count">0</span> domains</span>
 				</div>
-				<div class="toggles single" id="domain-sets" role="group" aria-label="Domain list">
-					<button type="button" data-value="quick" title="Twelve of the most visited sites">12 popular</button>
-					<button type="button" data-value="all" title="The full built-in list">All built-in</button>
+				<div class="domain-row">
+					<div class="toggles" id="domain-sets" role="group" aria-label="Domain list">
+						<button type="button" data-value="quick" title="Twelve of the most visited sites">12 popular</button>
+						<button type="button" data-value="all" title="The full built-in list">All built-in</button>
+					</div>
+					<button type="button" class="link" id="edit-domains" aria-expanded="false" aria-controls="domains-block">Edit list</button>
 				</div>
-				<textarea id="domains" name="domains" rows="7" spellcheck="false">{{.Domains}}</textarea>
-				<p class="hint">One per line. Lines starting with <code>#</code> are skipped.</p>
-			</section>
-
-			<section class="block">
-				<h2>Lookups</h2>
+				<div id="domains-block" hidden>
+					<textarea id="domains" name="domains" rows="8" spellcheck="false" aria-label="Domains, one per line">{{.Domains}}</textarea>
+					<p class="hint">One per line. Lines starting with <code>#</code> are skipped.</p>
+				</div>
 				<div class="numbers">
-					<label>Repeats per domain
+					<label title="Measured lookups of each domain against each resolver">Repeats
 						<input type="number" id="repeats" min="1" value="{{.Options.Repeats}}">
 					</label>
-					<label>Timeout per attempt, ms
+					<label title="Timeout for one lookup attempt, in milliseconds. A failed attempt is retried.">Timeout, ms
 						<input type="number" id="timeout" min="100" step="100" value="{{.Options.TimeoutMs}}">
 					</label>
-					<label>Concurrent lookups
+					<label title="Lookups in flight at once against the resolver under test">Parallel
 						<input type="number" id="concurrency" min="1" value="{{.Options.Concurrency}}">
 					</label>
-					<label>Warmup lookups
+					<label title="Unmeasured lookups before each measured one">Warmup
 						<input type="number" id="warmup" min="0" value="{{.Options.Warmup}}">
 					</label>
 				</div>
 			</section>
-
-			<p class="estimate" id="estimate"></p>
 		</fieldset>
+
+		<p class="estimate" id="estimate"></p>
 	</form>
 
 	<main class="board">
-		<section class="summary" aria-label="Summary">
-			<pre id="summary">;; no results yet</pre>
+		<section class="readouts" aria-label="Summary">
+			<div class="readout">
+				<span class="label">Fastest median</span>
+				<span class="value" id="sum-fastest">—</span>
+				<span class="sub" id="sum-fastest-name">no results yet</span>
+			</div>
+			<div class="readout">
+				<span class="label">Most reliable</span>
+				<span class="value" id="sum-reliable">—</span>
+				<span class="sub" id="sum-reliable-name"></span>
+			</div>
+			<div class="readout">
+				<span class="label">Lookups</span>
+				<span class="value" id="sum-lookups">0</span>
+				<span class="sub" id="sum-lookups-of"></span>
+			</div>
+			<div class="readout">
+				<span class="label">No answer at all</span>
+				<span class="value" id="sum-failed">—</span>
+				<span class="sub" id="sum-failed-of"></span>
+			</div>
 		</section>
 
 		<section class="ladder" aria-labelledby="ladder-title">
@@ -155,7 +175,7 @@
 			</div>
 
 			<ol id="ladder" class="rows"></ol>
-			<p id="ladder-empty" class="empty">Each lookup lands here as a dot on a log scale, so you see how much a resolver varies as well as how fast it is. The bar marks the median, the caret the 95th percentile, and the red gutter on the right the failed lookups. Click a resolver for its slowest domains and its errors.</p>
+			<p id="ladder-empty" class="empty">Each lookup lands here as a dot on a log scale, so you see how much a resolver varies as well as how fast it is. The dot color is the transport. The bar marks the median, the caret the 95th percentile, and the red gutter on the right the failed lookups. Click a resolver for its slowest domains and its errors.</p>
 		</section>
 
 		<details class="log">

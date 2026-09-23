@@ -40,13 +40,13 @@ const PRESETS = [
 	},
 	{
 		id: "providers",
-		name: "Every provider",
+		name: "All providers",
 		about: "Every provider over plain DNS, one address each.",
 		family: ["ipv4"], transport: ["plain"], category: ALL.category, major: false, primary: true, domains: "all", repeats: 5,
 	},
 	{
 		id: "encrypted",
-		name: "Encrypted DNS",
+		name: "Encrypted",
 		about: "DoT, DoH, and DoQ from the major providers.",
 		family: ["ipv4"], transport: ["dot", "doh", "doq"], category: ALL.category, major: true, primary: true, domains: "all", repeats: 5,
 	},
@@ -64,7 +64,7 @@ const PRESETS = [
 	},
 	{
 		id: "privacy",
-		name: "Privacy resolvers",
+		name: "Privacy",
 		about: "No-logging operators over DoT and DoH.",
 		family: ["ipv4"], transport: ["dot", "doh"], category: ["Privacy"], major: false, primary: true, domains: "all", repeats: 5,
 	},
@@ -424,7 +424,7 @@ function renderPicker() {
 			const toggle = el(
 				"button",
 				{ type: "button", className: "group-name" },
-				el("span", { className: "caret", textContent: open ? "▾" : "▸" }),
+				el("span", { className: "caret", ariaHidden: "true" }),
 				el("span", { className: "name", textContent: provider }),
 			)
 			toggle.dataset.open = provider
@@ -563,6 +563,8 @@ function loadSetup() {
 		if (typeof data[key] === "string") $(id).value = data[key]
 	}
 	if (data.custom?.trim()) $("custom-block").open = true
+	// A list the user typed stays in view. A built-in list stays folded.
+	if (!domainSetOf(parseLines($("domains").value))) showDomains(true)
 }
 
 function setupChanged() {
@@ -636,10 +638,6 @@ function renderProgress(e) {
 
 function renderSummary() {
 	const entries = [...state.results.values()]
-	if (entries.length === 0) {
-		$("summary").textContent = ";; no results yet"
-		return
-	}
 	const answered = entries.filter((e) => e.samples.length > 0)
 	const fastest = answered.reduce((best, e) => (best === null || median(e) < median(best) ? e : best), null)
 	const reliable = entries
@@ -649,18 +647,18 @@ function renderSummary() {
 			const d = successRate(e.stats) - successRate(best.stats)
 			return d > 0 || (d === 0 && (median(e) ?? Infinity) < (median(best) ?? Infinity)) ? e : best
 		}, null)
-	const failed = entries.filter((e) => e.done && e.samples.length === 0 && e.stats.count === 0).length
+	const done = entries.filter((e) => e.done)
+	const failed = done.filter((e) => e.samples.length === 0 && e.stats.count === 0).length
 
-	const lookups = state.plannedLookups
-		? `${state.lookups.toLocaleString()} of ${state.plannedLookups.toLocaleString()}`
-		: state.lookups.toLocaleString()
-	const rows = [
-		["fastest median", fastest ? `${fastest.server.name}  ${formatMs(median(fastest))}` : "—"],
-		["most reliable", reliable ? `${reliable.server.name}  ${formatPct(successRate(reliable.stats))}` : "—"],
-		["lookups", lookups],
-		["no answer at all", failed ? plural(failed, "resolver") : "none"],
-	]
-	$("summary").textContent = rows.map(([k, v]) => `;; ${k.padEnd(17)} ${v}`).join("\n")
+	$("sum-fastest").textContent = fastest ? formatMs(median(fastest)) : "—"
+	$("sum-fastest-name").textContent = fastest ? fastest.server.name : entries.length ? "waiting for answers" : "no results yet"
+	$("sum-reliable").textContent = reliable ? formatPct(successRate(reliable.stats)) : "—"
+	$("sum-reliable-name").textContent = reliable ? reliable.server.name : ""
+	$("sum-lookups").textContent = state.lookups.toLocaleString()
+	$("sum-lookups-of").textContent = state.plannedLookups ? `of ${state.plannedLookups.toLocaleString()}` : ""
+	$("sum-failed").textContent = done.length ? (failed ? plural(failed, "resolver") : "none") : "—"
+	$("sum-failed").classList.toggle("bad", failed > 0)
+	$("sum-failed-of").textContent = done.length ? `of ${plural(done.length, "finished resolver")}` : ""
 }
 
 // Entries
@@ -726,7 +724,16 @@ let palette = null
 function readPalette() {
 	const css = getComputedStyle(document.documentElement)
 	const v = (name) => css.getPropertyValue(name).trim()
-	palette = { dot: v("--dot"), ink: v("--ink"), rule: v("--rule"), fail: v("--fail"), failBg: v("--fail-bg") }
+	palette = {
+		plain: v("--t-plain"),
+		dot: v("--t-dot"),
+		doh: v("--t-doh"),
+		doq: v("--t-doq"),
+		ink: v("--text"),
+		rule: v("--line"),
+		fail: v("--fail"),
+		failBg: v("--fail-bg"),
+	}
 }
 
 function axisX(ms, width) {
@@ -744,7 +751,7 @@ function renderAxis() {
 	$("axis").replaceChildren(
 		...axisTicks().map((t) => {
 			const x = axisX(t, 1)
-			const span = el("span", { textContent: t >= 1000 ? `${t / 1000}s` : `${t}` })
+			const span = el("span", { textContent: t >= 1000 ? `${t / 1000} s` : t === AXIS_MIN_MS ? `${t} ms` : `${t}` })
 			span.style.left = `calc((100% - ${FAIL_GUTTER}px) * ${x})`
 			// Keep the labels at either end inside the axis.
 			if (x < 0.03) span.className = "start"
@@ -887,8 +894,8 @@ function drawTrace(entry, canvas) {
 
 	// One dot per successful lookup, spread vertically by a fixed hash so a
 	// dense cluster reads as dense instead of as one dot.
-	ctx.fillStyle = palette.dot
-	ctx.globalAlpha = 0.5
+	ctx.fillStyle = palette[transportOf(entry.server)]
+	ctx.globalAlpha = 0.55
 	entry.samples.forEach((ms, i) => {
 		const jitter = (((i * 2654435761) >>> 0) % 1000) / 1000 - 0.5
 		ctx.beginPath()
@@ -911,10 +918,14 @@ function drawTrace(entry, canvas) {
 	}
 
 	// Failed lookups fill the gutter from the bottom, by share of lookups.
+	// A resolver without failures gets a hairline, so the gutter stays quiet.
 	const failures = entry.stats.errors
-	ctx.fillStyle = palette.failBg
-	ctx.fillRect(plot + 6, 3, FAIL_GUTTER - 8, height - 6)
-	if (failures > 0 && entry.stats.total > 0) {
+	if (failures === 0) {
+		ctx.fillStyle = palette.rule
+		ctx.fillRect(plot + 6, height - 4, FAIL_GUTTER - 8, 1)
+	} else if (entry.stats.total > 0) {
+		ctx.fillStyle = palette.failBg
+		ctx.fillRect(plot + 6, 3, FAIL_GUTTER - 8, height - 6)
 		const h = Math.max(2, (height - 6) * (failures / entry.stats.total))
 		ctx.fillStyle = palette.fail
 		ctx.fillRect(plot + 6, height - 3 - h, FAIL_GUTTER - 8, h)
@@ -1089,6 +1100,7 @@ function resetPage() {
 	state.status = "idle"
 	form.reset()
 	$("custom-block").open = false
+	showDomains(false)
 	try {
 		localStorage.removeItem(STORAGE_KEY)
 	} catch {
@@ -1295,6 +1307,14 @@ $("domain-sets").addEventListener("click", (event) => {
 	$("domains").value = DOMAIN_SETS[value].join("\n")
 	setupChanged()
 })
+
+function showDomains(open) {
+	$("domains-block").hidden = !open
+	$("edit-domains").setAttribute("aria-expanded", String(open))
+	$("edit-domains").textContent = open ? "Hide list" : "Edit list"
+}
+
+$("edit-domains").addEventListener("click", () => showDomains($("domains-block").hidden))
 
 $("only-major").addEventListener("change", () => {
 	setup.major = $("only-major").checked

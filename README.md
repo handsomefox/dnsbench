@@ -33,8 +33,8 @@ make build
 ```
 
 `make build` runs the tests and writes `bin/dnsbench`. Plain `go build` works
-too. The Web UI is a Go template, a stylesheet, and one script in `ui/`. The
-binary embeds all three, so the build needs no Node.js.
+too. The Web UI is a Go template, a stylesheet, one script, and two font files
+in `ui/`. The binary embeds all of them, so the build needs no Node.js.
 
 ## Run a benchmark
 
@@ -139,13 +139,15 @@ dnsbench tries to open your browser at that address. If it does not, open
 **Plain vs encrypted**, or build a selection yourself: filter by address family,
 transport, and kind of resolver, search, and tick providers or single
 addresses. Resolvers you add under **Add your own resolvers** join the
-selection. The estimate under the setup shows how many lookups the run makes.
+selection. **Edit list** opens the domain list. The estimate under the setup
+shows how many lookups the run makes.
 Click **Start benchmark**, or press Ctrl+Enter. **Stop** ends a run early.
 **Reset** clears the results and restores the default setup. The dashboard
 remembers your setup between visits.
 
 Each resolver gets one row, with every lookup plotted as a dot on a log-scale
-millisecond axis. The bar marks the median, the caret marks the 95th
+millisecond axis. The dot color is the transport: plain DNS, DoT, DoH, or DoQ.
+The bar marks the median, the caret marks the 95th
 percentile, and the red gutter shows the share of failed lookups, so a
 resolver that is fast on average but erratic stands out. Click a row for its
 slowest domains and its errors. **Download CSV** and **Download JSON** save the
