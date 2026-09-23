@@ -126,7 +126,7 @@ func parseFlags() *Config {
 	flag.StringVar(&transport, "proto", "plain", "Transport of the built-in resolvers: plain, dot (DNS over TLS), doh (DNS over HTTPS), doq (DNS over QUIC), or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Unmeasured lookups of a domain right before a resolver's first measured lookup of it")
 	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
-	flag.StringVar(&listenAddr, "listen", ":8080", "Address for the Web UI HTTP server (used with -ui)")
+	flag.StringVar(&listenAddr, "listen", "127.0.0.1:8080", "Address for the Web UI HTTP server (used with -ui). Use :8080 to accept connections from other machines")
 
 	flag.Usage = func() {
 		//nolint:errcheck // best-effort help output

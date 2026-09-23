@@ -38,4 +38,4 @@ run: build
 
 run-ui: build
 	@echo "Starting dnsbench Web UI on http://127.0.0.1:8080 ..."
-	./$(BIN) -ui -listen 127.0.0.1:8080
+	./$(BIN) -ui

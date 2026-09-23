@@ -40,7 +40,7 @@ EDNS UDP size of 1232 bytes, so answers rarely need the TCP retry.
 | `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, `doh`, `doq`, or `all`. `-f` overrides it. |
 | `-warmup int` | `0` | Unmeasured lookups of a domain right before a resolver's first measured lookup of it. Zero or less disables warmup. |
 | `-ui` | `false` | Serves the Web UI instead of running a CLI benchmark |
-| `-listen string` | `:8080` | Web UI listen address. The default accepts connections on every interface. |
+| `-listen string` | `127.0.0.1:8080` | Web UI listen address. The default accepts connections from this machine only. `:8080` accepts them on every interface. |
 
 The flag parser takes one or two leading hyphens. The values of `-output`,
 `-log`, `-family`, and `-proto` are case-insensitive. dnsbench exits `1` with a

@@ -132,7 +132,7 @@ resolver with no successful lookup has `null` for every latency field. See
 ## Start the Web UI
 
 ```bash
-./bin/dnsbench -ui -listen 127.0.0.1:8080
+./bin/dnsbench -ui
 ```
 
 dnsbench tries to open your browser at that address. If it does not, open
@@ -154,10 +154,10 @@ resolver that is fast on average but erratic stands out. Click a row for its
 slowest domains and its errors. **Download CSV** and **Download JSON** save the
 table.
 
-`-listen` defaults to `:8080`, which accepts connections from anywhere that can
-reach your machine. The dashboard has no authentication, and it runs lookups
-against whatever resolver addresses a request names. If you expose it beyond
-your own machine, put it behind a firewall or a reverse proxy.
+`-listen` defaults to `127.0.0.1:8080`, so only your own machine can reach the
+dashboard. It has no authentication, and it runs lookups against whatever
+resolver addresses a request names. To open it to other machines, pass
+`-listen :8080`, and put it behind a firewall or a reverse proxy.
 
 ## Documentation
 
