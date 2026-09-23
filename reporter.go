@@ -8,7 +8,7 @@ import (
 type BenchmarkReporter interface {
 	OnStart(totalResolvers int, domains []string)
 	OnResolverStart(server DNSServer, index, total int)
-	OnQueryResult(server DNSServer, domain string, latencyMs float64, err error)
+	OnQueryResult(server DNSServer, domain string, latencyMs float64, attempts int, err error)
 	OnResolverDone(server DNSServer, stats Stats, took time.Duration)
 	OnComplete(results []BenchmarkResult, err error)
 }
@@ -16,11 +16,11 @@ type BenchmarkReporter interface {
 // NoopReporter is used when no callbacks are needed.
 type NoopReporter struct{}
 
-func (NoopReporter) OnStart(_ int, _ []string)                               {}
-func (NoopReporter) OnResolverStart(_ DNSServer, _, _ int)                   {}
-func (NoopReporter) OnQueryResult(_ DNSServer, _ string, _ float64, _ error) {}
-func (NoopReporter) OnResolverDone(_ DNSServer, _ Stats, _ time.Duration)    {}
-func (NoopReporter) OnComplete(_ []BenchmarkResult, _ error)                 {}
+func (NoopReporter) OnStart(_ int, _ []string)                                      {}
+func (NoopReporter) OnResolverStart(_ DNSServer, _, _ int)                          {}
+func (NoopReporter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int, _ error) {}
+func (NoopReporter) OnResolverDone(_ DNSServer, _ Stats, _ time.Duration)           {}
+func (NoopReporter) OnComplete(_ []BenchmarkResult, _ error)                        {}
 
 // SSEReporter emits progress updates over SSE.
 type SSEReporter struct {
@@ -56,11 +56,12 @@ func (r *SSEReporter) OnResolverStart(server DNSServer, index, total int) {
 	})
 }
 
-func (r *SSEReporter) OnQueryResult(server DNSServer, domain string, latencyMs float64, err error) {
+func (r *SSEReporter) OnQueryResult(server DNSServer, domain string, latencyMs float64, attempts int, err error) {
 	detail := map[string]any{
-		"server":  server,
-		"domain":  domain,
-		"latency": latencyMs,
+		"server":   server,
+		"domain":   domain,
+		"latency":  latencyMs,
+		"attempts": attempts,
 	}
 	if err != nil {
 		detail["error"] = err.Error()

@@ -20,12 +20,19 @@ import (
 	"golang.org/x/net/dns/dnsmessage"
 )
 
-type ResolverRetry bool
-
+// Waits between the attempts of one lookup. They stay short: a benchmark
+// wants to see a resolver that drops queries, not to wait it out.
 const (
-	ResolverRetryDisabled ResolverRetry = false
-	ResolverRetryEnabled  ResolverRetry = true
+	retryBackoff    = 250 * time.Millisecond
+	retryBackoffMax = time.Second
 )
+
+// Lookup is the outcome of one lookup: the latency of the attempt that got
+// the answer, and how many attempts the lookup made.
+type Lookup struct {
+	Latency  time.Duration
+	Attempts int
+}
 
 // ednsUDPSize is the UDP payload size that queries advertise. 1232 bytes
 // fits in one packet on any path, as DNS Flag Day 2020 recommends.
@@ -170,17 +177,18 @@ func precheckTLS(ctx context.Context, dialer *tls.Dialer, hostPort string) error
 	return nil
 }
 
-// QueryDNS looks up the A records of domain and returns how long the
-// answering attempt took. Each attempt sends one query and is bounded by
-// timeout.
-func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retry ResolverRetry) (time.Duration, error) {
+// QueryDNS looks up the A records of domain. Each attempt sends one query
+// and is bounded by timeout. A failed attempt is retried up to retries
+// times, after a short wait, unless the answer was final, such as NXDOMAIN.
+// The returned Lookup counts the attempts made, even when err is not nil.
+func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retries int) (Lookup, error) {
 	if domain == "" {
-		return 0, errors.New("empty domain name")
+		return Lookup{}, errors.New("empty domain name")
 	}
 	// An absolute name, so nothing appends a search domain to it.
 	name, err := dnsmessage.NewName(strings.TrimSuffix(domain, ".") + ".")
 	if err != nil {
-		return 0, fmt.Errorf("invalid domain name %q: %w", domain, err)
+		return Lookup{}, fmt.Errorf("invalid domain name %q: %w", domain, err)
 	}
 
 	log := slog.With(
@@ -226,19 +234,14 @@ func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Dur
 		return took, nil
 	}
 
-	retries := 10
-	if !retry {
-		retries = 1
-	}
-
-	elapsed, err := retryWithBackoff(ctx, try, retries, 2*time.Second, 60*time.Second)
+	elapsed, attempts, err := retryWithBackoff(ctx, try, 1+max(retries, 0), retryBackoff, retryBackoffMax)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return 0, fmt.Errorf("DNS query timeout for %s via %s: %w", domain, r.serverAddr, err)
+			return Lookup{Attempts: attempts}, fmt.Errorf("DNS query timeout for %s via %s: %w", domain, r.serverAddr, err)
 		}
-		return 0, fmt.Errorf("DNS query failed for %s via %s: %w", domain, r.serverAddr, err)
+		return Lookup{Attempts: attempts}, fmt.Errorf("DNS query failed for %s via %s: %w", domain, r.serverAddr, err)
 	}
-	return elapsed, nil
+	return Lookup{Latency: elapsed, Attempts: attempts}, nil
 }
 
 // buildQuery returns a recursive A query for name with an EDNS(0) record

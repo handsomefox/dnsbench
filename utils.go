@@ -71,11 +71,12 @@ func printResultsCSV(w io.Writer, results []BenchmarkResult, failed bool) {
 		}
 		return
 	}
-	_, _ = fmt.Fprintln(w, "Resolver,Success Rate,Mean (ms),Min (ms),Max (ms),Total Queries")
+	_, _ = fmt.Fprintln(w, "Resolver,Success Rate,Retried,Mean (ms),Min (ms),Max (ms),Total Queries")
 	for _, r := range results {
-		_, _ = fmt.Fprintf(w, "%s,%.1f,%.2f,%.2f,%.2f,%d\n",
+		_, _ = fmt.Fprintf(w, "%s,%.1f,%d,%.2f,%.2f,%.2f,%d\n",
 			r.Server.Name,
 			r.Stats.SuccessRate()*100,
+			r.Stats.Retried,
 			r.Stats.Mean,
 			r.Stats.Min,
 			r.Stats.Max,
@@ -105,13 +106,14 @@ func printResultsTable(w io.Writer, results []BenchmarkResult, failed bool) {
 		}
 		return
 	}
-	_, _ = fmt.Fprintf(w, "%-*s %10s %10s %10s %10s %10s\n",
-		nameWidth, "Resolver", "Success%", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
-	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("-", nameWidth+55))
+	_, _ = fmt.Fprintf(w, "%-*s %10s %8s %10s %10s %10s %10s\n",
+		nameWidth, "Resolver", "Success%", "Retried", "Mean(ms)", "Min(ms)", "Max(ms)", "Queries")
+	_, _ = fmt.Fprintf(w, "%s\n", strings.Repeat("-", nameWidth+64))
 	for _, r := range results {
-		_, _ = fmt.Fprintf(w, "%-*s %9.1f%% %9.2f %9.2f %9.2f %10d\n",
+		_, _ = fmt.Fprintf(w, "%-*s %9.1f%% %8d %9.2f %9.2f %9.2f %10d\n",
 			nameWidth, r.Server.Name,
 			r.Stats.SuccessRate()*100,
+			r.Stats.Retried,
 			r.Stats.Mean,
 			r.Stats.Min,
 			r.Stats.Max,
@@ -152,33 +154,38 @@ type finalError struct{ err error }
 func (e *finalError) Error() string { return e.err.Error() }
 func (e *finalError) Unwrap() error { return e.err }
 
+// retryWithBackoff calls f up to maxAttempts times until it succeeds or
+// returns a finalError. Between attempts it waits half the backoff plus a
+// random share of it, and the backoff doubles up to maxBackoff. It returns
+// how many times it called f.
 func retryWithBackoff[T any](
 	ctx context.Context,
 	f func(attempt int) (T, error),
-	maxRetries int,
+	maxAttempts int,
 	initialBackoff time.Duration,
 	maxBackoff time.Duration,
-) (val T, err error) {
-	if maxRetries < 1 {
-		return val, errors.New("maxRetries must be positive")
+) (val T, attempts int, err error) {
+	if maxAttempts < 1 {
+		return val, 0, errors.New("maxAttempts must be positive")
 	}
 
 	backoff := min(initialBackoff, maxBackoff)
 
-	for attempt := range maxRetries {
+	for attempt := range maxAttempts {
 		if cErr := ctx.Err(); cErr != nil {
-			return val, cErr
+			return val, attempts, cErr
 		}
 
+		attempts++
 		val, err = f(attempt)
 		if err == nil {
-			return val, nil
+			return val, attempts, nil
 		}
 		if final := (*finalError)(nil); errors.As(err, &final) {
-			return val, final.err
+			return val, attempts, final.err
 		}
 
-		if attempt == maxRetries-1 {
+		if attempt == maxAttempts-1 {
 			break
 		}
 
@@ -188,14 +195,14 @@ func retryWithBackoff[T any](
 
 		select {
 		case <-ctx.Done():
-			return val, ctx.Err()
+			return val, attempts, ctx.Err()
 		case <-time.After(wait):
 		}
 
 		backoff = min(backoff*2, maxBackoff)
 	}
 
-	return val, err
+	return val, attempts, err
 }
 
 // isValidDomain reports whether domain is a hostname with at least two

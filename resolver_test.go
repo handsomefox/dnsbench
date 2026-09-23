@@ -27,7 +27,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 		serverAddr string
 		domain     string
 		timeout    time.Duration
-		retry      ResolverRetry
+		retries    int
 		wantErr    bool
 		errMessage string
 	}{
@@ -36,7 +36,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 			serverAddr: "8.8.8.8",
 			domain:     "google.com",
 			timeout:    2 * time.Second,
-			retry:      ResolverRetryDisabled,
+			retries:    0,
 			wantErr:    false,
 		},
 		{
@@ -44,7 +44,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 			serverAddr: "8.8.8.8",
 			domain:     "",
 			timeout:    2 * time.Second,
-			retry:      ResolverRetryDisabled,
+			retries:    0,
 			wantErr:    true,
 			errMessage: "empty domain name",
 		},
@@ -53,7 +53,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 			serverAddr: "256.256.256.256",
 			domain:     "google.com",
 			timeout:    2 * time.Second,
-			retry:      ResolverRetryDisabled,
+			retries:    0,
 			wantErr:    true,
 		},
 		{
@@ -61,7 +61,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 			serverAddr: "8.8.8.8",
 			domain:     "thisisnotavaliddomain.invalidtld",
 			timeout:    2 * time.Second,
-			retry:      ResolverRetryDisabled,
+			retries:    0,
 			wantErr:    true,
 		},
 		{
@@ -69,7 +69,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 			serverAddr: "8.8.8.8",
 			domain:     "google.com",
 			timeout:    1 * time.Microsecond,
-			retry:      ResolverRetryDisabled,
+			retries:    0,
 			wantErr:    true,
 		},
 	}
@@ -79,7 +79,7 @@ func TestResolver_QueryDNS(t *testing.T) {
 			ctx := context.Background()
 			r := NewResolver(DNSServer{Addr: tt.serverAddr}, 1)
 
-			_, err := r.QueryDNS(ctx, tt.domain, tt.timeout, tt.retry)
+			_, err := r.QueryDNS(ctx, tt.domain, tt.timeout, tt.retries)
 			if !tt.wantErr && err != nil {
 				if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "network is unreachable") {
 					t.Skipf("skipping due to restricted network: %v", err)
@@ -239,7 +239,7 @@ func TestResolver_DoTReusesConnections(t *testing.T) {
 	r := newResolver("127.0.0.1", f.hostPort, f.config(), 1)
 	defer r.Close()
 	for range 3 {
-		if _, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, ResolverRetryDisabled); err != nil {
+		if _, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, 0); err != nil {
 			t.Fatalf("QueryDNS() error = %v", err)
 		}
 	}
@@ -258,7 +258,7 @@ func TestResolver_DoTRecoversFromClosedIdleConnection(t *testing.T) {
 	r := newResolver("127.0.0.1", f.hostPort, f.config(), 1)
 	defer r.Close()
 	for i := range 3 {
-		if _, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, ResolverRetryDisabled); err != nil {
+		if _, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, 0); err != nil {
 			t.Fatalf("lookup %d: QueryDNS() error = %v", i+1, err)
 		}
 	}
@@ -314,7 +314,7 @@ func TestResolver_DNSOverTLS(t *testing.T) {
 			r := newResolver("127.0.0.1", hostPort, cfg, 1)
 
 			before := queries.Load()
-			_, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, ResolverRetryDisabled)
+			_, err := r.QueryDNS(t.Context(), "dot.example", 2*time.Second, 0)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("QueryDNS() succeeded against a certificate for another name")
@@ -392,7 +392,7 @@ func TestResolver_DNSOverHTTPS(t *testing.T) {
 	t.Run("answers", func(t *testing.T) {
 		r := newDoHResolver("127.0.0.1", "https://example.com/dns-query", hostPort, tlsConfig("example.com"), 2)
 		for range 3 {
-			if _, err := r.QueryDNS(t.Context(), "doh.example.", 2*time.Second, ResolverRetryDisabled); err != nil {
+			if _, err := r.QueryDNS(t.Context(), "doh.example.", 2*time.Second, 0); err != nil {
 				t.Fatalf("QueryDNS() error = %v", err)
 			}
 		}
@@ -414,18 +414,18 @@ func TestResolver_DNSOverHTTPS(t *testing.T) {
 
 	t.Run("NXDOMAIN is final", func(t *testing.T) {
 		r := newDoHResolver("127.0.0.1", "https://example.com/dns-query", hostPort, tlsConfig("example.com"), 1)
-		start := time.Now()
-		if _, err := r.QueryDNS(t.Context(), "nx.example.", 2*time.Second, ResolverRetryEnabled); err == nil {
+		lookup, err := r.QueryDNS(t.Context(), "nx.example.", 2*time.Second, 2)
+		if err == nil {
 			t.Fatal("QueryDNS() succeeded for a name that does not exist")
 		}
-		if took := time.Since(start); took > 900*time.Millisecond {
-			t.Errorf("QueryDNS() took %v, so it retried a final answer", took)
+		if lookup.Attempts != 1 {
+			t.Errorf("QueryDNS() made %d attempts, so it retried a final answer", lookup.Attempts)
 		}
 	})
 
 	t.Run("HTTP error", func(t *testing.T) {
 		r := newDoHResolver("127.0.0.1", "https://example.com/wrong-path", hostPort, tlsConfig("example.com"), 1)
-		_, err := r.QueryDNS(t.Context(), "doh.example.", 2*time.Second, ResolverRetryDisabled)
+		_, err := r.QueryDNS(t.Context(), "doh.example.", 2*time.Second, 0)
 		if err == nil || !strings.Contains(err.Error(), "400 Bad Request") {
 			t.Errorf("QueryDNS() error = %v, want it to report the 400", err)
 		}
@@ -506,30 +506,74 @@ func fakeAnswer(query []byte, truncated bool) ([]byte, bool) {
 	return resp, true
 }
 
-// An NXDOMAIN answer is final. With retries on, a lookup that retried it
-// would wait at least a second of backoff before the second attempt.
+// An NXDOMAIN answer is final, so a lookup with retries left makes one
+// attempt and sends one query.
 func TestResolver_DoesNotRetryNXDOMAIN(t *testing.T) {
 	hostPort, roots, queries := startFakeDoT(t)
 	r := newResolver("127.0.0.1", hostPort, &tls.Config{ServerName: "dns.test", RootCAs: roots, MinVersion: tls.VersionTLS12}, 1)
 
-	start := time.Now()
-	_, err := r.QueryDNS(t.Context(), "nx.example", 2*time.Second, ResolverRetryEnabled)
+	lookup, err := r.QueryDNS(t.Context(), "nx.example", 2*time.Second, 2)
 	if err == nil {
 		t.Fatal("QueryDNS() succeeded for a name that does not exist")
 	}
-	if took := time.Since(start); took > 900*time.Millisecond {
-		t.Errorf("QueryDNS() took %v, so it retried a final answer", took)
+	if lookup.Attempts != 1 {
+		t.Errorf("QueryDNS() made %d attempts, so it retried a final answer", lookup.Attempts)
 	}
 	if got := queries.Load(); got != 1 {
 		t.Errorf("server saw %d queries, want 1", got)
 	}
 }
 
+// A resolver that never answers gets the first attempt and every retry,
+// and the retries wait well under a second each.
+func TestResolver_RetriesUnansweredQueries(t *testing.T) {
+	addr, queries := startSilentDNS(t)
+	r := newResolver("127.0.0.1", addr, nil, 1)
+
+	start := time.Now()
+	lookup, err := r.QueryDNS(t.Context(), "silent.example", 100*time.Millisecond, 2)
+	if err == nil {
+		t.Fatal("QueryDNS() succeeded against a server that never answers")
+	}
+	if lookup.Attempts != 3 {
+		t.Errorf("QueryDNS() made %d attempts, want 3", lookup.Attempts)
+	}
+	if got := queries.Load(); got != 3 {
+		t.Errorf("server saw %d queries, want 3", got)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("QueryDNS() took %v, want the retries to wait well under a second each", took)
+	}
+}
+
+// startSilentDNS reads DNS queries on a loopback UDP port and never
+// answers, like a resolver behind a firewall that drops packets.
+func startSilentDNS(t *testing.T) (hostPort string, queries *atomic.Int32) {
+	t.Helper()
+	var lc net.ListenConfig
+	udp, err := lc.ListenPacket(t.Context(), "udp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("cannot listen on loopback UDP: %v", err)
+	}
+	t.Cleanup(func() { closeQuietly(udp) })
+	queries = &atomic.Int32{}
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			if _, _, err := udp.ReadFrom(buf); err != nil {
+				return
+			}
+			queries.Add(1)
+		}
+	}()
+	return udp.LocalAddr().String(), queries
+}
+
 func TestResolver_RetriesTruncatedAnswersOverTCP(t *testing.T) {
 	f := startFakeDNS(t)
 	r := newResolver("127.0.0.1", f.hostPort, nil, 1)
 
-	if _, err := r.QueryDNS(t.Context(), "truncated.example", 2*time.Second, ResolverRetryDisabled); err != nil {
+	if _, err := r.QueryDNS(t.Context(), "truncated.example", 2*time.Second, 0); err != nil {
 		t.Fatalf("QueryDNS() error = %v", err)
 	}
 	if f.tcpQueries.Load() == 0 {

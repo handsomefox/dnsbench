@@ -42,6 +42,9 @@ type Stats struct {
 	Count  int     `json:"count"`
 	Errors int     `json:"errors"`
 	Total  int     `json:"total"`
+	// Retried counts the successful lookups that needed more than one
+	// attempt.
+	Retried int `json:"retried"`
 }
 
 // MarshalJSON encodes Min, Max, and Mean as null when they are NaN, which
@@ -50,19 +53,21 @@ type Stats struct {
 // interfaces, where the SSE reporter puts Stats.
 func (s Stats) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {
-		Min    *float64 `json:"min"`
-		Max    *float64 `json:"max"`
-		Mean   *float64 `json:"mean"`
-		Count  int      `json:"count"`
-		Errors int      `json:"errors"`
-		Total  int      `json:"total"`
+		Min     *float64 `json:"min"`
+		Max     *float64 `json:"max"`
+		Mean    *float64 `json:"mean"`
+		Count   int      `json:"count"`
+		Errors  int      `json:"errors"`
+		Total   int      `json:"total"`
+		Retried int      `json:"retried"`
 	}{
-		Min:    finiteOrNil(s.Min),
-		Max:    finiteOrNil(s.Max),
-		Mean:   finiteOrNil(s.Mean),
-		Count:  s.Count,
-		Errors: s.Errors,
-		Total:  s.Total,
+		Min:     finiteOrNil(s.Min),
+		Max:     finiteOrNil(s.Max),
+		Mean:    finiteOrNil(s.Mean),
+		Count:   s.Count,
+		Errors:  s.Errors,
+		Total:   s.Total,
+		Retried: s.Retried,
 	})
 }
 
@@ -148,9 +153,10 @@ func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, doma
 
 func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, domains []string, reporter BenchmarkReporter) Stats {
 	type result struct {
-		domain  string
-		latency float64
-		err     error
+		domain   string
+		latency  float64
+		attempts int
+		err      error
 	}
 
 	total := len(domains) * config.Repeats
@@ -167,7 +173,7 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 		)
 		for range config.Repeats {
 			for _, domain := range domains {
-				reporter.OnQueryResult(server, domain, 0, err)
+				reporter.OnQueryResult(server, domain, 0, 0, err)
 			}
 		}
 		return calculateStats(nil, total, total)
@@ -181,14 +187,12 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	for range config.Repeats {
 		for _, domain := range domains {
 			errg.Go(func() error {
-				lat, err := resolver.QueryDNS(ctx, domain, config.LookupTimeout, ResolverRetryEnabled)
-				if err != nil {
-					results <- result{domain: domain, err: err}
-				} else {
-					results <- result{
-						domain:  domain,
-						latency: lat.Seconds() * 1000,
-					}
+				lookup, err := resolver.QueryDNS(ctx, domain, config.LookupTimeout, config.Retries)
+				results <- result{
+					domain:   domain,
+					latency:  lookup.Latency.Seconds() * 1000,
+					attempts: lookup.Attempts,
+					err:      err,
 				}
 				return nil
 			})
@@ -206,20 +210,26 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	var (
 		allLatencies = make([]float64, 0, total)
 		errorCount   int
+		retried      int
 	)
 
 	// Collect results
 	for r := range results {
 		if r.err != nil {
 			errorCount++
-			reporter.OnQueryResult(server, r.domain, 0, r.err)
+			reporter.OnQueryResult(server, r.domain, 0, r.attempts, r.err)
 			continue
 		}
 		allLatencies = append(allLatencies, r.latency)
-		reporter.OnQueryResult(server, r.domain, r.latency, nil)
+		if r.attempts > 1 {
+			retried++
+		}
+		reporter.OnQueryResult(server, r.domain, r.latency, r.attempts, nil)
 	}
 
-	return calculateStats(allLatencies, errorCount, total)
+	stats := calculateStats(allLatencies, errorCount, total)
+	stats.Retried = retried
+	return stats
 }
 
 // warmUp sends runs unmeasured lookups of each domain to resolver before
@@ -243,7 +253,7 @@ func warmUp(ctx context.Context, resolver *Resolver, domains []string, runs int)
 	for range runs {
 		for _, domain := range domains {
 			wg.Go(func() {
-				if _, err := resolver.QueryDNS(ctx, domain, time.Second, ResolverRetryDisabled); err != nil {
+				if _, err := resolver.QueryDNS(ctx, domain, time.Second, 0); err != nil {
 					slog.LogAttrs(ctx, slog.LevelDebug, "Warmup query failed",
 						slog.String("domain", domain),
 						slogErr(err),

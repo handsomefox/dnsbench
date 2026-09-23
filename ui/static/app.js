@@ -697,18 +697,19 @@ function p95(entry) {
 }
 
 function emptyStats() {
-	return { min: null, max: null, mean: null, count: 0, errors: 0, total: 0 }
+	return { min: null, max: null, mean: null, count: 0, errors: 0, total: 0, retried: 0 }
 }
 
 // liveStats folds one lookup into a resolver's running statistics until
 // the resolver_done event replaces them with the server's numbers.
-function liveStats(prev, latency, failed) {
+function liveStats(prev, latency, failed, attempts) {
 	const next = { ...prev, total: prev.total + 1 }
 	if (failed) {
 		next.errors += 1
 		return next
 	}
 	next.count += 1
+	if (attempts > 1) next.retried = (prev.retried ?? 0) + 1
 	next.mean = (prev.mean ?? 0) + (latency - (prev.mean ?? 0)) / next.count
 	next.min = prev.min === null ? latency : Math.min(prev.min, latency)
 	next.max = prev.max === null ? latency : Math.max(prev.max, latency)
@@ -857,6 +858,11 @@ function renderLadder() {
 		nodes.p50.textContent = formatMs(median(entry))
 		nodes.p95.textContent = formatMs(p95(entry))
 		nodes.ok.textContent = entry.stats.total ? formatPct(rate) : "—"
+		// A lookup that answered only after a retry still counts as OK. Mark
+		// the rate, so a flaky resolver does not pass for a solid one.
+		const retried = entry.stats.retried ?? 0
+		nodes.ok.classList.toggle("retried", retried > 0)
+		nodes.ok.title = retried ? `${plural(retried, "lookup")} answered only after a retry` : ""
 		nodes.ok.classList.toggle("bad", entry.stats.total > 0 && rate < 100)
 		nodes.li.classList.toggle("pending", !entry.done)
 		const topError = [...entry.errors.entries()].sort((a, b) => b[1] - a[1])[0]
@@ -939,7 +945,7 @@ function drawTrace(entry, canvas) {
 function renderDetail(entry, node) {
 	const s = entry.stats
 	const lines = [
-		`;; lookups ${s.total}   answered ${s.count}   failed ${s.errors}`,
+		`;; lookups ${s.total}   answered ${s.count}   failed ${s.errors}   retried ${s.retried ?? 0}`,
 		`;; min ${formatMs(s.min)}   mean ${formatMs(s.mean)}   max ${formatMs(s.max)}`,
 	]
 	if (transportOf(entry.server) !== "plain") lines.push(`;; ${transportLabel(entry.server)}`)
@@ -1040,7 +1046,7 @@ function handleEvent(msg) {
 			state.log.length = Math.min(state.log.length, LOG_LIMIT)
 
 			const entry = entryFor(server)
-			entry.stats = liveStats(entry.stats, detail.latency, failed)
+			entry.stats = liveStats(entry.stats, detail.latency, failed, detail.attempts ?? 1)
 			if (failed) {
 				const kind = errorKind(detail.error)
 				entry.errors.set(kind, (entry.errors.get(kind) ?? 0) + 1)
@@ -1209,6 +1215,7 @@ function exportRows() {
 		successPct: Number(successRate(e.stats).toFixed(2)),
 		answered: e.stats.count,
 		failed: e.stats.errors,
+		retried: e.stats.retried ?? 0,
 		total: e.stats.total,
 		p50Ms: roundOrNull(median(e)),
 		p95Ms: roundOrNull(p95(e)),

@@ -123,10 +123,10 @@ func TestBuiltinServersAnswer(t *testing.T) {
 			r := NewResolver(server, 1)
 			var err error
 			for range 3 {
-				var took time.Duration
-				took, err = r.QueryDNS(context.Background(), "wikipedia.org", 4*time.Second, ResolverRetryDisabled)
+				var lookup Lookup
+				lookup, err = r.QueryDNS(context.Background(), "wikipedia.org", 4*time.Second, 0)
 				if err == nil {
-					t.Logf("%-32s %-24s %v", server.Name, server.Addr, took.Round(time.Millisecond))
+					t.Logf("%-32s %-24s %v", server.Name, server.Addr, lookup.Latency.Round(time.Millisecond))
 					return
 				}
 			}

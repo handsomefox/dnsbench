@@ -29,6 +29,7 @@ type Config struct {
 	Family             AddrFamily
 	Transport          Transport
 	MaxConcurrency     int
+	Retries            int
 
 	// Output and logging
 	OutputType OutputType
@@ -218,6 +219,7 @@ func parseFlags() *Config {
 	flag.StringVar(&config.SitesFile, "s", "", "File of domains, one per line, that replaces the built-in list")
 	flag.StringVar(&outputType, "output", "default", "Output format: default, csv, table, or json")
 	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
+	flag.IntVar(&config.Retries, "retries", 2, "Retries of a failed lookup attempt, after a short wait. 0 disables them")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
 	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Benchmark only the first address of each built-in provider, such as Cloudflare-1")
@@ -264,6 +266,11 @@ Examples:
 	// Validate configuration
 	if config.Repeats < 1 {
 		fmt.Fprintf(os.Stderr, "Error: repeats must be at least 1\n")
+		os.Exit(1)
+	}
+
+	if config.Retries < 0 {
+		fmt.Fprintf(os.Stderr, "Error: retries must be 0 or more\n")
 		os.Exit(1)
 	}
 

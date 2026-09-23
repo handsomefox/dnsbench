@@ -1177,6 +1177,12 @@ input[type="checkbox"] {
 	color: var(--fail);
 }
 
+.row .num.retried {
+	text-decoration: underline dotted var(--t-dot);
+	text-underline-offset: 3px;
+	cursor: help;
+}
+
 .errline {
 	overflow: hidden;
 	color: var(--fail);

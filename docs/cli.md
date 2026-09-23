@@ -25,6 +25,7 @@ EDNS UDP size of 1232 bytes, so answers rarely need the TCP retry.
 | `-s string` | Empty | Domain file that replaces the built-in list |
 | `-n int` | `10` | Measured lookups per domain for each resolver. Minimum `1`. |
 | `-t duration` | `3s` | Timeout for one lookup attempt. Minimum `100ms`. Takes Go durations such as `1500ms` and `2s`. |
+| `-retries int` | `2` | Retries of a failed lookup attempt. `0` disables them. |
 | `-c int` | `max(runtime.NumCPU()/2, 2)` | Maximum concurrent lookups against the current resolver. Minimum `1`. |
 | `-output string` | `default` | Report format: `default`, `csv`, `table`, or `json` |
 | `-log string` | `default` | Logging level: `default`, `verbose`, or `disabled` |
@@ -42,12 +43,16 @@ message on standard error when a value is out of range or a name is unknown.
 
 ## Lookup behavior
 
-`-t` bounds one attempt, not a lookup and not a run. A measured lookup makes up
-to ten attempts and waits between failed ones. That wait comes from a base delay
-that doubles from two seconds up to a sixty-second ceiling, plus random jitter.
-A resolver that keeps failing can therefore hold a run open for minutes. An
-answer that the name does not exist (NXDOMAIN) is final, so dnsbench does not
-retry it.
+`-t` bounds one attempt, not a lookup and not a run. A measured lookup makes
+one attempt and, when it fails, up to `-retries` more. Between attempts it waits
+between 125 and 375 milliseconds, then between 250 and 750, and never more than
+a second and a half. An answer that the name does not exist (NXDOMAIN), or that
+it has no A record, is final, so dnsbench does not retry it.
+
+A lookup that answered only after a retry still counts as a success. The
+reports count those lookups separately as `retried`, and the dashboard
+underlines the success rate of a resolver that has any, so a resolver that
+drops queries does not pass for a reliable one.
 
 Before it benchmarks a resolver, dnsbench checks for two failures that no retry
 can fix:
@@ -66,8 +71,8 @@ If either check fails, dnsbench logs a warning and counts every planned lookup
 against that resolver as failed, without retries.
 
 The reported latency covers the successful attempt alone. It leaves out the
-earlier attempts, the backoff, and the time the lookup spent waiting for a
-concurrency slot.
+earlier attempts, the waits between them, and the time the lookup spent waiting
+for a concurrency slot.
 
 Warmup runs once per resolver, before its measured lookups. `-warmup 2` sends
 two lookups of each domain whatever `-n` is, so 54 domains mean 108 warmup
@@ -182,6 +187,7 @@ Each entry in `results` and `failures` has these fields:
 | `stats.count` | Successful measured lookups |
 | `stats.errors` | Measured lookups that failed, after any retries |
 | `stats.total` | Planned measured lookups, the domain count multiplied by `-n` |
+| `stats.retried` | Successful lookups that needed more than one attempt |
 
 The `summary` object has these fields:
 

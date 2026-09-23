@@ -197,23 +197,23 @@ func TestStats_MarshalJSON(t *testing.T) {
 		{
 			name: "NaN latencies become null",
 			v:    failed,
-			want: `{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3}`,
+			want: `{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3,"retried":0}`,
 		},
 		{
 			name: "finite latencies stay numbers",
 			v:    ok,
-			want: `{"min":1.5,"max":4,"mean":2.25,"count":2,"errors":0,"total":2}`,
+			want: `{"min":1.5,"max":4,"mean":2.25,"count":2,"errors":0,"total":2,"retried":0}`,
 		},
 		{
 			// The SSE reporter stores Stats by value inside a map.
 			name: "inside a map",
 			v:    map[string]any{"stats": failed},
-			want: `{"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3}}`,
+			want: `{"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3,"retried":0}}`,
 		},
 		{
 			name: "inside a result",
 			v:    BenchmarkResult{Server: DNSServer{Name: "a", Addr: "192.0.2.1"}, Stats: failed},
-			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3}}`,
+			want: `{"server":{"name":"a","addr":"192.0.2.1"},"stats":{"min":null,"max":null,"mean":null,"count":0,"errors":3,"total":3,"retried":0}}`,
 		},
 	}
 
@@ -236,7 +236,7 @@ type countingReporter struct {
 	err    atomic.Value
 }
 
-func (r *countingReporter) OnQueryResult(_ DNSServer, _ string, _ float64, err error) {
+func (r *countingReporter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int, err error) {
 	if err != nil {
 		r.failed.Add(1)
 		r.err.Store(err.Error())

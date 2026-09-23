@@ -108,7 +108,7 @@ func TestResolver_DNSOverQUIC(t *testing.T) {
 		for range 3 {
 			// checkAnswer rejects an answer whose ID differs from its
 			// query, so success also shows that the ID was restored.
-			if _, err := r.QueryDNS(t.Context(), "doq.example.", 2*time.Second, ResolverRetryDisabled); err != nil {
+			if _, err := r.QueryDNS(t.Context(), "doq.example.", 2*time.Second, 0); err != nil {
 				t.Fatalf("QueryDNS() error = %v", err)
 			}
 		}
@@ -129,12 +129,12 @@ func TestResolver_DNSOverQUIC(t *testing.T) {
 	t.Run("NXDOMAIN is final", func(t *testing.T) {
 		r := newDoQResolver("127.0.0.1", f.hostPort, named("dns.test"), 1)
 		defer r.Close()
-		start := time.Now()
-		if _, err := r.QueryDNS(t.Context(), "nx.example.", 2*time.Second, ResolverRetryEnabled); err == nil {
+		lookup, err := r.QueryDNS(t.Context(), "nx.example.", 2*time.Second, 2)
+		if err == nil {
 			t.Fatal("QueryDNS() succeeded for a name that does not exist")
 		}
-		if took := time.Since(start); took > 900*time.Millisecond {
-			t.Errorf("QueryDNS() took %v, so it retried a final answer", took)
+		if lookup.Attempts != 1 {
+			t.Errorf("QueryDNS() made %d attempts, so it retried a final answer", lookup.Attempts)
 		}
 	})
 
@@ -161,7 +161,7 @@ func TestResolver_DNSOverQUIC(t *testing.T) {
 		defer r.Close()
 		before := f.conns.Load()
 		for range 2 {
-			if _, err := r.QueryDNS(t.Context(), "doq.example.", 2*time.Second, ResolverRetryDisabled); err != nil {
+			if _, err := r.QueryDNS(t.Context(), "doq.example.", 2*time.Second, 0); err != nil {
 				t.Fatalf("QueryDNS() error = %v", err)
 			}
 			r.Close()
