@@ -36,6 +36,7 @@ type runOptions struct {
 	PrimaryOnly bool   `json:"primaryOnly"`
 	Family      string `json:"family"`
 	Transport   string `json:"transport"`
+	Kind        string `json:"kind"`
 }
 
 type runRequest struct {
@@ -156,6 +157,7 @@ func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
 			PrimaryOnly: s.baseConfig.Filter.Primary,
 			Family:      s.baseConfig.Filter.Family.String(),
 			Transport:   s.baseConfig.Filter.Transport.String(),
+			Kind:        s.baseConfig.Filter.Kind,
 		},
 		DefaultDomains: catalog.DefaultDomains,
 		Builtins:       catalog.All(),
@@ -286,6 +288,13 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*bench.Options, []dnsclient.
 			return nil, nil, nil, err
 		}
 		filter.Family = family
+	}
+	if req.Options.Kind != "" {
+		kind, err := catalog.ParseKind(req.Options.Kind)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		filter.Kind = kind
 	}
 	if req.Options.Transport != "" {
 		transport, err := catalog.ParseTransport(req.Options.Transport)

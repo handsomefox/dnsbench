@@ -90,6 +90,25 @@ For details, see
 [DNS over HTTPS](docs/cli.md#dns-over-https), and
 [DNS over QUIC](docs/cli.md#dns-over-quic).
 
+## Test filtering resolvers
+
+Many providers run filtering addresses next to their plain ones. Cloudflare's
+1.1.1.2 blocks malware, and 1.1.1.3 blocks adult content as well. AdGuard,
+CleanBrowsing, OpenDNS, DNS4EU, Canadian Shield, ControlD, and Mullvad offer
+family or ad filters, and Quad9's main 9.9.9.9 blocks malware. `-kind
+filtering` benchmarks only the filters. To compare one address of each over
+plain DNS, run:
+
+```bash
+./bin/dnsbench -kind filtering -primary
+```
+
+A filter answers a name it blocks with no address or with an address such as
+`0.0.0.0`. Either way the lookup counts as answered. The reports count the
+first kind as `blocked`, so a family filter that blocks `reddit.com` shows it
+there instead of as a failure. In the dashboard, the **Filtering DNS** preset
+and the **Filtering** kind select them.
+
 ## Use your own resolvers and domains
 
 Write `resolvers.txt` with one `name;ip` pair per line. Addresses can be IPv4 or

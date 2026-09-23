@@ -244,3 +244,34 @@ func TestBuiltinCatalog(t *testing.T) {
 		}
 	}
 }
+
+func TestFilterKind(t *testing.T) {
+	all := Servers(Filter{Family: FamilyAll, Transport: TransportAll})
+	var total int
+	for _, kind := range Kinds {
+		got := Servers(Filter{Family: FamilyAll, Transport: TransportAll, Kind: kind})
+		if len(got) == 0 {
+			t.Errorf("kind %s selects no resolver", kind)
+		}
+		total += len(got)
+	}
+	if total != len(all) {
+		t.Errorf("the kinds select %d resolvers together, want all %d", total, len(all))
+	}
+	for _, e := range All() {
+		if e.Name == "Cloudflare-Family-1" && e.Category != "Filtering" {
+			t.Errorf("Cloudflare-Family-1 has kind %s, want Filtering", e.Category)
+		}
+	}
+}
+
+func TestParseKind(t *testing.T) {
+	for in, want := range map[string]string{"all": "", "filtering": "Filtering", "GLOBAL": "Global", "Privacy": "Privacy", "regional": "Regional"} {
+		if got, err := ParseKind(in); err != nil || got != want {
+			t.Errorf("ParseKind(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+	if _, err := ParseKind("family"); err == nil {
+		t.Error(`ParseKind("family") returned no error`)
+	}
+}

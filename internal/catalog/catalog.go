@@ -149,6 +149,24 @@ type Filter struct {
 	Primary   bool // only the first address in each list
 	Family    Family
 	Transport Transport
+	Kind      string // a category such as Filtering, or empty for all
+}
+
+// Kinds are the resolver categories, in the order the dashboard shows them.
+var Kinds = []string{"Global", "Filtering", "Privacy", "Regional"}
+
+// ParseKind parses a -kind value: global, filtering, privacy, regional, or
+// all, in any case. It returns the category name, or "" for all.
+func ParseKind(s string) (string, error) {
+	if strings.EqualFold(s, "all") {
+		return "", nil
+	}
+	for _, k := range Kinds {
+		if strings.EqualFold(s, k) {
+			return k, nil
+		}
+	}
+	return "", fmt.Errorf("invalid kind %q: want global, filtering, privacy, regional, or all", s)
 }
 
 // Entry is one built-in resolver with the facts that the filters
@@ -226,7 +244,8 @@ func (f Filter) Matches(e *Entry) bool {
 	return (!f.Major || e.Major) &&
 		(!f.Primary || e.Primary) &&
 		(f.Family == FamilyAll || f.Family.String() == e.Family) &&
-		(f.Transport == TransportAll || f.Transport.String() == e.Transport)
+		(f.Transport == TransportAll || f.Transport.String() == e.Transport) &&
+		(f.Kind == "" || f.Kind == e.Category)
 }
 
 // Servers lists the built-in resolvers that match f, in catalog order.

@@ -84,6 +84,15 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 			wantErr: "invalid transport",
 		},
 		{
+			name: "filtering built-ins",
+			req:  runRequest{Options: runOptions{Kind: "filtering"}},
+		},
+		{
+			name:    "unknown kind",
+			req:     runRequest{Options: runOptions{Kind: "family"}},
+			wantErr: "invalid kind",
+		},
+		{
 			name:    "unknown family",
 			req:     runRequest{Options: runOptions{Family: "ipv5"}},
 			wantErr: "invalid address family",

@@ -33,6 +33,7 @@ type Config struct {
 	PrimaryOnly        bool
 	Family             catalog.Family
 	Transport          catalog.Transport
+	Kind               string
 	MaxConcurrency     int
 	Retries            int
 
@@ -125,6 +126,7 @@ func parseFlags() *Config {
 		logType    string
 		family     string
 		transport  string
+		kind       string
 		warmupRuns int
 		serveUI    bool
 		listenAddr string
@@ -142,6 +144,7 @@ func parseFlags() *Config {
 	flag.BoolVar(&config.PrimaryOnly, "primary", false, "Only the first address of each provider, such as Cloudflare-1")
 	flag.StringVar(&family, "family", "ipv4", "Address family: ipv4, ipv6, or all")
 	flag.StringVar(&transport, "proto", "plain", "Transport: plain, dot, doh, doq, or all")
+	flag.StringVar(&kind, "kind", "all", "Kind of resolver: global, filtering (malware, ads, or family filters), privacy, regional, or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Unmeasured lookups of a domain right before a resolver's first measured lookup of it")
 	flag.BoolVar(&config.List, "list", false, "Print the resolvers a run would use, after the filters or from -f, and exit")
 	flag.BoolVar(&serveUI, "ui", false, "Serve the dashboard instead of running a benchmark")
@@ -193,6 +196,13 @@ func parseFlags() *Config {
 	}
 	config.Transport = tr
 
+	k, err := catalog.ParseKind(kind)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	config.Kind = k
+
 	config.WarmupRuns = warmupRuns
 	config.ServeUI = serveUI
 	config.ListenAddr = listenAddr
@@ -231,6 +241,7 @@ func (c *Config) filter() catalog.Filter {
 		Primary:   c.PrimaryOnly,
 		Family:    c.Family,
 		Transport: c.Transport,
+		Kind:      c.Kind,
 	}
 }
 
@@ -255,7 +266,7 @@ var usageGroups = []struct {
 	title string
 	flags []string
 }{
-	{"Resolvers", []string{"major", "primary", "family", "proto", "f", "list"}},
+	{"Resolvers", []string{"major", "primary", "family", "proto", "kind", "f", "list"}},
 	{"Domains", []string{"s"}},
 	{"Measurement", []string{"n", "t", "c", "retries", "warmup"}},
 	{"Output", []string{"output", "log"}},

@@ -63,6 +63,12 @@ const PRESETS = [
 		family: ALL.family, transport: ["plain"], category: ALL.category, major: true, primary: true, domains: "all", repeats: 5,
 	},
 	{
+		id: "filtering",
+		name: "Filtering DNS",
+		about: "Every malware, ad, and family filter over plain DNS, one address each.",
+		family: ["ipv4"], transport: ["plain"], category: ["Filtering"], major: false, primary: true, domains: "all", repeats: 5,
+	},
+	{
 		id: "privacy",
 		name: "Privacy DNS",
 		about: "No-logging operators over DoT and DoH.",
@@ -100,7 +106,7 @@ function defaultSetup() {
 	return {
 		family: new Set(pick(serverDefaults.family, ALL.family)),
 		transport: new Set(pick(serverDefaults.transport, ALL.transport)),
-		category: new Set(ALL.category),
+		category: new Set(pick(serverDefaults.kind, ALL.category)),
 		major: Boolean(serverDefaults.onlyMajor),
 		primary: Boolean(serverDefaults.primaryOnly),
 		excluded: new Set(), // serverKeys the user unchecked
