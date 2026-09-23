@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"sync/atomic"
@@ -270,5 +271,82 @@ func TestRunBenchmark_UnreachableResolverFailsFast(t *testing.T) {
 	}
 	if msg, ok := reporter.err.Load().(string); !ok || !strings.Contains(msg, "no route to resolver") {
 		t.Errorf("reported error = %q, want it to mention the missing route", msg)
+	}
+}
+
+// useFakeDoT points every server of a run at f.
+func useFakeDoT(t *testing.T, f *fakeDoT) {
+	t.Helper()
+	saved := newResolverFor
+	t.Cleanup(func() { newResolverFor = saved })
+	newResolverFor = func(server DNSServer, concurrency int) *Resolver {
+		return newResolver(server.Addr, f.hostPort, f.config(), concurrency)
+	}
+}
+
+// Each resolver gets every domain Repeats times, plus WarmupRuns warmup
+// lookups of each domain before its first measured lookup.
+func TestRunBenchmark_CountsLookupsAndWarmups(t *testing.T) {
+	f := startFakeDoTWith(t, false)
+	useFakeDoT(t, f)
+
+	cfg := &Config{Repeats: 2, WarmupRuns: 1, LookupTimeout: 2 * time.Second, MaxConcurrency: 4}
+	servers := []DNSServer{{Name: "a", Addr: "127.0.0.1"}, {Name: "b", Addr: "127.0.0.2"}}
+	domains := []string{"one.example", "two.example", "three.example"}
+
+	results, err := runBenchmark(t.Context(), cfg, servers, domains, nil)
+	if err != nil {
+		t.Fatalf("runBenchmark() error = %v", err)
+	}
+	for i, r := range results {
+		if r.Server != servers[i] {
+			t.Errorf("result %d is for %s, want the servers' order", i, r.Server.Name)
+		}
+		if r.Stats.Count != 6 || r.Stats.Total != 6 {
+			t.Errorf("%s: stats = %+v, want 6 answers of 6", r.Server.Name, r.Stats)
+		}
+	}
+	// Two servers × (3 domains × 2 repeats + 3 domains × 1 warmup).
+	if got := f.queries.Load(); got != 18 {
+		t.Errorf("server saw %d queries, want 18", got)
+	}
+}
+
+// cancelAfter cancels a run after its first n lookups.
+type cancelAfter struct {
+	NoopReporter
+	n      atomic.Int32
+	cancel context.CancelFunc
+}
+
+func (r *cancelAfter) OnQueryResult(_ DNSServer, _ string, _ float64, _ int, _ error) {
+	if r.n.Add(-1) == 0 {
+		r.cancel()
+	}
+}
+
+// Stopping a run must not count the lookups it cut short as failures.
+func TestRunBenchmark_CancelDoesNotCountFailures(t *testing.T) {
+	f := startFakeDoTWith(t, false)
+	useFakeDoT(t, f)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	reporter := &cancelAfter{cancel: cancel}
+	reporter.n.Store(3)
+
+	cfg := &Config{Repeats: 20, LookupTimeout: 2 * time.Second, MaxConcurrency: 2}
+	servers := []DNSServer{{Name: "a", Addr: "127.0.0.1"}, {Name: "b", Addr: "127.0.0.2"}}
+	results, err := runBenchmark(ctx, cfg, servers, []string{"one.example", "two.example"}, reporter)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runBenchmark() error = %v, want context.Canceled", err)
+	}
+	for _, r := range results {
+		if r.Stats.Errors != 0 {
+			t.Errorf("%s: %d failed lookups after a cancel, want 0", r.Server.Name, r.Stats.Errors)
+		}
+		if r.Stats.Total >= 40 {
+			t.Errorf("%s: %d lookups ran, want the run cut short", r.Server.Name, r.Stats.Total)
+		}
 	}
 }

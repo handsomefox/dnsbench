@@ -1,7 +1,12 @@
 # CLI reference
 
-dnsbench benchmarks one resolver at a time. For each resolver it runs the
-hostname lookups concurrently, up to `-c` at once. A lookup is one recursive
+dnsbench benchmarks every resolver in the same run, with the lookups
+interleaved. Each of the `-n` rounds visits the domains in a new random order,
+and for each domain the resolvers in a new random order. Up to `-c` lookups run
+at once, across all resolvers. A slow patch on your network therefore spreads
+over every resolver instead of landing on whichever ran at the time, and no
+resolver always asks second for a domain that another just put in a shared
+cache. A lookup is one recursive
 query for the domain's A records, and it succeeds when the answer holds at
 least one. A plain DNS resolver gets its queries over UDP port 53, and over TCP
 when a UDP answer arrives truncated. A DNS over TLS (DoT) resolver gets them
@@ -26,14 +31,14 @@ EDNS UDP size of 1232 bytes, so answers rarely need the TCP retry.
 | `-n int` | `10` | Measured lookups per domain for each resolver. Minimum `1`. |
 | `-t duration` | `3s` | Timeout for one lookup attempt. Minimum `100ms`. Takes Go durations such as `1500ms` and `2s`. |
 | `-retries int` | `2` | Retries of a failed lookup attempt. `0` disables them. |
-| `-c int` | `max(runtime.NumCPU()/2, 2)` | Maximum concurrent lookups against the current resolver. Minimum `1`. |
+| `-c int` | `max(runtime.NumCPU()/2, 2)` | Maximum lookups in flight at once, across all resolvers. Minimum `1`. |
 | `-output string` | `default` | Report format: `default`, `csv`, `table`, or `json` |
 | `-log string` | `default` | Logging level: `default`, `verbose`, or `disabled` |
 | `-major` | `false` | Uses only the major providers from the built-in list. `-f` overrides it. |
 | `-primary` | `false` | Uses only the first address of each built-in provider, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |
 | `-family string` | `ipv4` | Address family of the built-in resolvers: `ipv4`, `ipv6`, or `all`. `-f` overrides it. |
 | `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, `doh`, `doq`, or `all`. `-f` overrides it. |
-| `-warmup int` | `0` | Unmeasured lookups of each domain before a resolver's measured lookups. Zero or less disables warmup. |
+| `-warmup int` | `0` | Unmeasured lookups of a domain right before a resolver's first measured lookup of it. Zero or less disables warmup. |
 | `-ui` | `false` | Serves the Web UI instead of running a CLI benchmark |
 | `-listen string` | `:8080` | Web UI listen address. The default accepts connections on every interface. |
 
@@ -74,11 +79,13 @@ The reported latency covers the successful attempt alone. It leaves out the
 earlier attempts, the waits between them, and the time the lookup spent waiting
 for a concurrency slot.
 
-Warmup runs once per resolver, before its measured lookups. `-warmup 2` sends
-two lookups of each domain whatever `-n` is, so 54 domains mean 108 warmup
-lookups per resolver. They fill the resolver's cache and open the connection
-that DoH and DoQ reuse. Warmup lookups use a one-second timeout, do not retry,
-and never reach the statistics.
+Warmup runs in the first round. Before a resolver's first measured lookup of a
+domain, the same job sends that resolver `-warmup` lookups of the same domain,
+one after another. `-warmup 2` therefore sends two lookups of each domain to
+each resolver whatever `-n` is, so 54 domains mean 108 warmup lookups per
+resolver. They put the answer in the resolver's cache and open the connection
+that DoT, DoH, and DoQ reuse. Warmup lookups use a one-second timeout, do not
+retry, and never reach the statistics.
 
 ### DNS over TLS
 

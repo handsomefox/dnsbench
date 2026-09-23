@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"math"
+	"math/rand/v2"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -91,180 +93,273 @@ func (s Stats) SuccessRate() float64 {
 	return float64(s.Count) / float64(s.Total)
 }
 
+// newResolverFor builds the resolver for each server of a run. Tests
+// replace it to point a run at local fake servers.
+var newResolverFor = NewResolver
+
+// precheckLimit caps how many resolvers are prechecked at once. A precheck
+// can wait for a TLS handshake, so running them together saves time.
+const precheckLimit = 16
+
+// runBenchmark measures every server against every domain, config.Repeats
+// times, and returns one result per server in the order given.
+//
+// Lookups interleave. Each round visits the domains in a new random order,
+// and for each domain the servers in a new random order, so no server
+// always goes first for a domain or always runs while the network is
+// busy. Up to config.MaxConcurrency lookups run at once, across all
+// servers. In the first round, a server's lookup of a domain starts with
+// config.WarmupRuns unmeasured lookups of the same domain.
 func runBenchmark(ctx context.Context, config *Config, servers []DNSServer, domains []string, reporter BenchmarkReporter) ([]BenchmarkResult, error) {
 	if len(servers) == 0 {
 		return nil, errors.New("no DNS servers provided")
 	}
-
 	if len(domains) == 0 {
 		return nil, errors.New("no domains provided")
 	}
-
 	if reporter == nil {
 		reporter = NoopReporter{}
 	}
+	// Workers finish lookups in parallel. The reporters expect one call at
+	// a time.
+	reporter = &serialReporter{next: reporter}
 
 	reporter.OnStart(len(servers), domains)
+	slog.LogAttrs(ctx, slog.LevelInfo, "Starting benchmark",
+		slog.Int("resolvers", len(servers)),
+		slog.Int("domains", len(domains)),
+		slog.Int("lookups", len(servers)*len(domains)*config.Repeats),
+	)
 
-	results := make([]BenchmarkResult, 0, len(servers))
-	var runErr error
-
+	runs := make([]*resolverRun, len(servers))
 	for i, server := range servers {
-		if cErr := ctx.Err(); cErr != nil {
-			runErr = cErr
-			slog.LogAttrs(ctx, slog.LevelWarn, "Benchmark canceled", slogErr(cErr))
-			break
+		runs[i] = &resolverRun{
+			server:    server,
+			resolver:  newResolverFor(server, config.MaxConcurrency),
+			planned:   len(domains) * config.Repeats,
+			remaining: len(domains) * config.Repeats,
+			start:     time.Now(),
 		}
-
-		slog.LogAttrs(ctx, slog.LevelInfo, "Benchmarking resolver",
-			slog.String("name", server.Name),
-			slog.String("addr", server.Addr),
-			slog.Int("progress", i+1),
-			slog.Int("total", len(servers)),
-		)
-
 		reporter.OnResolverStart(server, i+1, len(servers))
+	}
+	defer func() {
+		for _, run := range runs {
+			run.resolver.Close()
+		}
+	}()
 
-		start := time.Now()
+	live := precheckAll(ctx, runs, domains, config.Repeats, reporter)
 
-		stats := benchmarkResolver(ctx, config, server, domains, reporter)
-		results = append(results, BenchmarkResult{
-			Server: server,
-			Stats:  stats,
+	jobs := make(chan lookupJob)
+	var wg sync.WaitGroup
+	for range max(config.MaxConcurrency, 1) {
+		wg.Go(func() {
+			for job := range jobs {
+				job.run.lookup(ctx, config, job, reporter)
+			}
 		})
-
-		took := time.Since(start)
-		slog.LogAttrs(ctx, slog.LevelInfo, "Finished benchmarking resolver",
-			slog.String("name", server.Name),
-			slog.String("addr", server.Addr),
-			slog.Int64("took_ms", took.Milliseconds()),
-			slog.Float64("success_rate", stats.SuccessRate()*100),
-		)
-
-		reporter.OnResolverDone(server, stats, took)
-
-		// Cool off after each server.
-		gcAndWait()
 	}
 
+feed:
+	for round := range config.Repeats {
+		for _, domain := range shuffled(domains) {
+			for _, run := range shuffled(live) {
+				job := lookupJob{run: run, domain: domain}
+				if round == 0 {
+					job.warmup = config.WarmupRuns
+				}
+				select {
+				case jobs <- job:
+				case <-ctx.Done():
+					break feed
+				}
+			}
+		}
+	}
+	close(jobs)
+	wg.Wait()
+
+	runErr := ctx.Err()
+	if runErr != nil {
+		slog.LogAttrs(ctx, slog.LevelWarn, "Benchmark canceled", slogErr(runErr))
+	}
+	results := make([]BenchmarkResult, len(runs))
+	for i, run := range runs {
+		results[i] = BenchmarkResult{Server: run.server, Stats: run.stats()}
+	}
 	reporter.OnComplete(results, runErr)
 	return results, runErr
 }
 
-func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, domains []string, reporter BenchmarkReporter) Stats {
-	type result struct {
-		domain   string
-		latency  float64
-		attempts int
-		err      error
+// precheckAll prechecks every resolver, a few at a time, and returns the
+// ones that passed. A resolver that fails cannot answer however often it
+// is asked, so every one of its planned lookups fails at once, and the
+// reporter still sees one result per lookup.
+func precheckAll(ctx context.Context, runs []*resolverRun, domains []string, repeats int, reporter BenchmarkReporter) []*resolverRun {
+	errs := make([]error, len(runs))
+	var g errgroup.Group
+	g.SetLimit(precheckLimit)
+	for i, run := range runs {
+		g.Go(func() error {
+			errs[i] = run.resolver.Precheck(ctx)
+			return nil
+		})
 	}
+	_ = g.Wait() //nolint:errcheck // the goroutines keep their errors in errs
 
-	total := len(domains) * config.Repeats
-	resolver := NewResolver(server, config.MaxConcurrency)
-	defer resolver.Close()
-
-	// Without a route or with a bad certificate, every attempt fails and the
-	// retries only add backoff. Fail every planned lookup now, so the
-	// reporter still sees one result per lookup.
-	if err := resolver.Precheck(ctx); err != nil {
-		slog.LogAttrs(ctx, slog.LevelWarn, "Skipping resolver that cannot answer",
-			slog.String("name", server.Name),
-			slogErr(err),
-		)
-		for range config.Repeats {
-			for _, domain := range domains {
-				reporter.OnQueryResult(server, domain, 0, 0, err)
-			}
-		}
-		return calculateStats(nil, total, total)
-	}
-
-	warmUp(ctx, resolver, domains, config.WarmupRuns)
-
-	results := make(chan result, total)
-	errg, ctx := errgroup.WithContext(ctx)
-
-	for range config.Repeats {
-		for _, domain := range domains {
-			errg.Go(func() error {
-				lookup, err := resolver.QueryDNS(ctx, domain, config.LookupTimeout, config.Retries)
-				results <- result{
-					domain:   domain,
-					latency:  lookup.Latency.Seconds() * 1000,
-					attempts: lookup.Attempts,
-					err:      err,
-				}
-				return nil
-			})
-		}
-	}
-
-	// once all lookups are done (or parent ctx canceled), close the channel
-	go func() {
-		if err := errg.Wait(); err != nil {
-			slog.LogAttrs(ctx, slog.LevelError, "Unexpected worker pool error", slogErr(err))
-		}
-		close(results)
-	}()
-
-	var (
-		allLatencies = make([]float64, 0, total)
-		errorCount   int
-		retried      int
-	)
-
-	// Collect results
-	for r := range results {
-		if r.err != nil {
-			errorCount++
-			reporter.OnQueryResult(server, r.domain, 0, r.attempts, r.err)
+	live := make([]*resolverRun, 0, len(runs))
+	for i, run := range runs {
+		if errs[i] == nil {
+			live = append(live, run)
 			continue
 		}
-		allLatencies = append(allLatencies, r.latency)
-		if r.attempts > 1 {
-			retried++
+		slog.LogAttrs(ctx, slog.LevelWarn, "Skipping resolver that cannot answer",
+			slog.String("name", run.server.Name),
+			slogErr(errs[i]),
+		)
+		for range repeats {
+			for _, domain := range domains {
+				run.record(ctx, domain, Lookup{}, errs[i], reporter)
+			}
 		}
-		reporter.OnQueryResult(server, r.domain, r.latency, r.attempts, nil)
 	}
+	return live
+}
 
-	stats := calculateStats(allLatencies, errorCount, total)
-	stats.Retried = retried
+func shuffled[T any](items []T) []T {
+	out := slices.Clone(items)
+	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] }) //nolint:gosec // lookup order, not a secret
+	return out
+}
+
+// lookupJob is one measured lookup of domain against run's resolver,
+// after warmup unmeasured ones.
+type lookupJob struct {
+	run    *resolverRun
+	domain string
+	warmup int
+}
+
+// resolverRun collects one resolver's lookups during a run.
+type resolverRun struct {
+	server   DNSServer
+	resolver *Resolver
+	planned  int
+	start    time.Time
+
+	mu        sync.Mutex
+	latencies []float64
+	errors    int
+	retried   int
+	remaining int
+}
+
+// lookup runs job's warmup lookups, then its measured lookup, and records
+// the result. A lookup that the run's cancellation cut short is not
+// recorded: it says nothing about the resolver.
+func (r *resolverRun) lookup(ctx context.Context, config *Config, job lookupJob, reporter BenchmarkReporter) {
+	if ctx.Err() != nil {
+		return
+	}
+	warmUp(ctx, r.resolver, job.domain, job.warmup)
+	result, err := r.resolver.QueryDNS(ctx, job.domain, config.LookupTimeout, config.Retries)
+	if err != nil && ctx.Err() != nil {
+		return
+	}
+	r.record(ctx, job.domain, result, err, reporter)
+}
+
+// record adds one lookup to the resolver's results and reports it. After
+// the resolver's last planned lookup, it reports the resolver done.
+func (r *resolverRun) record(ctx context.Context, domain string, result Lookup, err error, reporter BenchmarkReporter) {
+	r.mu.Lock()
+	latency := result.Latency.Seconds() * 1000
+	if err != nil {
+		r.errors++
+		latency = 0
+	} else {
+		r.latencies = append(r.latencies, latency)
+		if result.Attempts > 1 {
+			r.retried++
+		}
+	}
+	r.remaining--
+	done := r.remaining == 0
+	r.mu.Unlock()
+
+	reporter.OnQueryResult(r.server, domain, latency, result.Attempts, err)
+	if done {
+		stats := r.stats()
+		took := time.Since(r.start)
+		slog.LogAttrs(ctx, slog.LevelInfo, "Finished resolver",
+			slog.String("name", r.server.Name),
+			slog.String("addr", r.server.Addr),
+			slog.Float64("success_rate", stats.SuccessRate()*100),
+		)
+		reporter.OnResolverDone(r.server, stats, took)
+	}
+}
+
+// stats returns the resolver's statistics so far. Total counts the lookups
+// that ran, which is every planned lookup unless the run was canceled.
+func (r *resolverRun) stats() Stats {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stats := calculateStats(slices.Clone(r.latencies), r.errors, len(r.latencies)+r.errors)
+	stats.Retried = r.retried
 	return stats
 }
 
-// warmUp sends runs unmeasured lookups of each domain to resolver before
-// the measured lookups start. They fill the resolver's cache and, for DoH
+// warmUp sends runs unmeasured lookups of domain to resolver, one after
+// another. They put the answer in the resolver's cache and, for DoT, DoH,
 // and DoQ, open the connection the measured lookups reuse. Each has a
 // one-second timeout and no retries, and its result is discarded.
-func warmUp(ctx context.Context, resolver *Resolver, domains []string, runs int) {
-	if runs <= 0 {
-		return
-	}
-
-	slog.LogAttrs(ctx, slog.LevelDebug, "Performing warmup queries",
-		slog.Int("warmup_runs", runs),
-		slog.Int("domains", len(domains)),
-		slog.String("resolver", resolver.serverAddr),
-	)
-
-	// QueryDNS holds the resolver's concurrency limit, so starting every
-	// lookup at once still sends at most that many at a time.
-	var wg sync.WaitGroup
+func warmUp(ctx context.Context, resolver *Resolver, domain string, runs int) {
 	for range runs {
-		for _, domain := range domains {
-			wg.Go(func() {
-				if _, err := resolver.QueryDNS(ctx, domain, time.Second, 0); err != nil {
-					slog.LogAttrs(ctx, slog.LevelDebug, "Warmup query failed",
-						slog.String("domain", domain),
-						slogErr(err),
-					)
-				}
-			})
+		if _, err := resolver.QueryDNS(ctx, domain, time.Second, 0); err != nil {
+			slog.LogAttrs(ctx, slog.LevelDebug, "Warmup query failed",
+				slog.String("domain", domain),
+				slog.String("resolver", resolver.serverAddr),
+				slogErr(err),
+			)
 		}
 	}
-	wg.Wait()
+}
 
-	gcAndWait()
+// serialReporter passes calls to next one at a time.
+type serialReporter struct {
+	mu   sync.Mutex
+	next BenchmarkReporter
+}
+
+func (r *serialReporter) OnStart(totalResolvers int, domains []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.next.OnStart(totalResolvers, domains)
+}
+
+func (r *serialReporter) OnResolverStart(server DNSServer, index, total int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.next.OnResolverStart(server, index, total)
+}
+
+func (r *serialReporter) OnQueryResult(server DNSServer, domain string, latencyMs float64, attempts int, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.next.OnQueryResult(server, domain, latencyMs, attempts, err)
+}
+
+func (r *serialReporter) OnResolverDone(server DNSServer, stats Stats, took time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.next.OnResolverDone(server, stats, took)
+}
+
+func (r *serialReporter) OnComplete(results []BenchmarkResult, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.next.OnComplete(results, err)
 }
 
 func calculateStats(latencies []float64, errs, total int) Stats {

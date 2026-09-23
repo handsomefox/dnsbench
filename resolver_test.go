@@ -405,7 +405,9 @@ func TestResolver_DNSOverHTTPS(t *testing.T) {
 	t.Run("warmup sends runs lookups per domain", func(t *testing.T) {
 		r := newDoHResolver("127.0.0.1", "https://example.com/dns-query", hostPort, tlsConfig("example.com"), 2)
 		before := queries.Load()
-		warmUp(t.Context(), r, []string{"a.example.", "b.example."}, 3)
+		for _, domain := range []string{"a.example.", "b.example."} {
+			warmUp(t.Context(), r, domain, 3)
+		}
 		// Two domains, three runs each, one A query per lookup.
 		if got := queries.Load() - before; got != 6 {
 			t.Errorf("server saw %d warmup queries, want 6", got)

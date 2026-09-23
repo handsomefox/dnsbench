@@ -11,7 +11,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -239,12 +238,6 @@ func isLabelChar(c rune) bool {
 func isValidServerAddr(addr string) bool {
 	_, err := netip.ParseAddr(addr)
 	return err == nil
-}
-
-func gcAndWait() {
-	runtime.GC()
-	runtime.GC()
-	time.Sleep(50 * time.Millisecond)
 }
 
 func slogErr(err error) slog.Attr {

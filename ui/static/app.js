@@ -85,7 +85,6 @@ const state = {
 	doneResolvers: 0,
 	plannedLookups: 0,
 	lookups: 0,
-	active: null,
 	axisMaxMs: 3000,
 	results: new Map(), // serverKey -> entry, see entryFor
 	log: [],
@@ -613,8 +612,11 @@ function renderProgress(e) {
 
 	let line
 	const elapsed = Date.now() - state.startedAt
-	if (state.status === "running" && state.active) {
-		line = `Resolver ${Math.min(state.doneResolvers + 1, state.totalResolvers)} of ${state.totalResolvers}: ${state.active} · ${formatDuration(elapsed)}`
+	if (state.status === "running" && state.lookups > 0) {
+		// Lookups interleave across every resolver, so progress is counted
+		// in lookups rather than in resolvers.
+		const of = state.plannedLookups ? ` of ${state.plannedLookups.toLocaleString()}` : ""
+		line = `${state.lookups.toLocaleString()}${of} lookups across ${plural(state.totalResolvers, "resolver")} · ${formatDuration(elapsed)}`
 		if (state.plannedLookups && state.lookups > 20 && elapsed > 3000) {
 			const left = ((state.plannedLookups - state.lookups) * elapsed) / state.lookups
 			line += `, about ${formatDuration(left)} left`
@@ -624,7 +626,8 @@ function renderProgress(e) {
 	} else if (state.status === "complete") {
 		line = `Finished ${plural(state.totalResolvers, "resolver")} and ${plural(state.lookups, "lookup")} in ${formatDuration(elapsed)}.`
 	} else if (state.status === "stopped") {
-		line = `Stopped after ${state.doneResolvers} of ${plural(state.totalResolvers, "resolver")}.`
+		const of = state.plannedLookups ? ` of ${state.plannedLookups.toLocaleString()}` : ""
+		line = `Stopped after ${state.lookups.toLocaleString()}${of} lookups.`
 	} else if (state.status === "error") {
 		line = "The run ended with an error."
 	} else if (e.lookups === 0) {
@@ -1004,7 +1007,6 @@ function renderLog() {
 // Events
 
 function clearRun() {
-	state.active = null
 	state.totalResolvers = 0
 	state.doneResolvers = 0
 	state.plannedLookups = 0
@@ -1034,7 +1036,7 @@ function handleEvent(msg) {
 			break
 		}
 		case "resolver_start":
-			state.active = detail.server?.name ?? null
+			// Every resolver starts at once, so each gets its row right away.
 			if (detail.server) entryFor(detail.server)
 			break
 		case "query": {
@@ -1070,7 +1072,6 @@ function handleEvent(msg) {
 			}
 			break
 		case "complete":
-			state.active = null
 			for (const r of detail.results ?? []) {
 				const entry = entryFor(r.server)
 				entry.stats = r.stats
@@ -1083,7 +1084,6 @@ function handleEvent(msg) {
 			if (detail.error) showNotice(detail.error)
 			break
 		case "stop":
-			state.active = null
 			state.status = "stopped"
 			break
 		case "reset":

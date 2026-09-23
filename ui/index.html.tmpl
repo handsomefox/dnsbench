@@ -111,10 +111,10 @@
 					<label title="Timeout for one lookup attempt, in milliseconds. A failed attempt is retried.">Timeout, ms
 						<input type="number" id="timeout" min="100" step="100" value="{{.Options.TimeoutMs}}">
 					</label>
-					<label title="Lookups in flight at once against the resolver under test">Parallel
+					<label title="Lookups in flight at once, across all resolvers">Parallel
 						<input type="number" id="concurrency" min="1" value="{{.Options.Concurrency}}">
 					</label>
-					<label title="Unmeasured lookups of each domain before a resolver's measured lookups">Warmup
+					<label title="Unmeasured lookups of a domain right before a resolver's first measured lookup of it">Warmup
 						<input type="number" id="warmup" min="0" value="{{.Options.Warmup}}">
 					</label>
 				</div>

@@ -4,10 +4,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 dnsbench measures how fast and how reliably DNS resolvers answer from your
-machine. It benchmarks one resolver at a time against a list of domains, over
-plain DNS or DNS over TLS, on IPv4 or IPv6. It reports latency and success rate
-as text, a table, CSV, or JSON, and an embedded Web UI shows a run while it
-happens.
+machine. It asks every resolver for the same list of domains, taking turns
+between them in random order, over plain DNS, DNS over TLS, DNS over HTTPS, or
+DNS over QUIC, on IPv4 or IPv6. It reports latency and success rate as text, a
+table, CSV, or JSON, and an embedded Web UI shows a run while it happens.
 
 ## Install
 
