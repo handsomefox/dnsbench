@@ -407,78 +407,120 @@ function matchesSearch(e, terms) {
 	return terms.every((t) => hay.includes(t))
 }
 
+// tristate returns a checkbox that is checked when every entry is chosen,
+// mixed when some are, and clear when none are.
+function tristate(entries, label) {
+	const chosen = entries.filter((e) => !setup.excluded.has(serverKey(e))).length
+	const box = el("input", { type: "checkbox", checked: chosen === entries.length, indeterminate: chosen > 0 && chosen < entries.length })
+	box.setAttribute("aria-label", label)
+	return { box, chosen }
+}
+
+function groupBy(entries, key) {
+	const groups = new Map()
+	for (const e of entries) {
+		if (!groups.has(e[key])) groups.set(e[key], [])
+		groups.get(e[key]).push(e)
+	}
+	return groups
+}
+
+function transportTags(entries) {
+	return [...new Set(entries.map((e) => e.transport))]
+		.filter((t) => t !== "plain")
+		.map((t) => el("span", { className: `tag tag-${t}`, textContent: TRANSPORT_LABEL[t] }))
+}
+
+// memberRow is one resolver: a checkbox, its name, and its address.
+function memberRow(e) {
+	const key = serverKey(e)
+	const box = el("input", { type: "checkbox", checked: !setup.excluded.has(key) })
+	box.dataset.key = key
+	return el(
+		"li",
+		{},
+		el(
+			"label",
+			{ title: `${e.name}, ${e.addr}, ${transportLabel(e)}` },
+			box,
+			el("span", { className: "name", textContent: e.name }),
+			el("span", { className: "addr", textContent: e.addr }),
+		),
+	)
+}
+
+// serviceRows lists one provider's resolvers. A service with several
+// visible resolvers gets a heading with its own checkbox. A service with
+// one is just that resolver's row, which is the common case with First
+// address only and one transport.
+function serviceRows(services, several) {
+	return [...services].flatMap(([service, entries]) => {
+		if (!several || entries.length === 1) return entries.map(memberRow)
+		const { box } = tristate(entries, `Select all of ${service}`)
+		box.dataset.service = service
+		return [
+			el(
+				"li",
+				{ className: "service" },
+				el("label", { className: "service-head" }, box, el("span", { className: "name", textContent: service }), el("span", { className: "count", textContent: entries.length })),
+				el("ul", { className: "members" }, ...entries.map(memberRow)),
+			),
+		]
+	})
+}
+
+// providerGroup is one company with a checkbox for everything it runs that
+// the filters allow. Open, it lists its services.
+function providerGroup(provider, entries, open) {
+	const { box, chosen } = tristate(entries, `Select all of ${provider}`)
+	box.dataset.provider = provider
+	const services = groupBy(entries, "service")
+	const toggle = el("button", { type: "button", className: "group-name" }, el("span", { className: "caret", ariaHidden: "true" }), el("span", { className: "name", textContent: provider }))
+	toggle.dataset.open = provider
+	toggle.title = [...services.keys()].join(", ")
+	toggle.setAttribute("aria-expanded", String(open))
+	const serviceCount = services.size > 1 ? el("span", { className: "services", textContent: `${services.size} services` }) : null
+	return el(
+		"li",
+		{ className: "group" },
+		el(
+			"div",
+			{ className: "group-head" },
+			box,
+			toggle,
+			el("span", { className: "group-meta" }, serviceCount, ...transportTags(entries), el("span", { className: "count", textContent: `${chosen}/${entries.length}` })),
+		),
+		open ? el("ul", { className: "members" }, ...serviceRows(services, services.size > 1)) : null,
+	)
+}
+
+// renderPicker lists the resolvers that the filters and the search allow,
+// grouped by provider. The major providers come first, then the others,
+// each part in alphabetical order, so a provider is always in the same
+// place whatever the filters.
 function renderPicker() {
 	const terms = setup.search.toLowerCase().split(/\s+/).filter(Boolean)
-	const groups = new Map()
-	for (const e of catalog) {
-		if (!isCandidate(e) || !matchesSearch(e, terms)) continue
-		if (!groups.has(e.service)) groups.set(e.service, [])
-		groups.get(e.service).push(e)
-	}
-
-	if (groups.size === 0) {
+	const visible = catalog.filter((e) => isCandidate(e) && matchesSearch(e, terms))
+	if (visible.length === 0) {
 		$("builtin-list").replaceChildren(
 			el("li", { className: "picker-empty", textContent: terms.length ? "No resolver matches the search." : "No resolver matches these filters. Turn on another address family, transport, or kind." }),
 		)
 		return
 	}
 
+	const providers = groupBy(visible, "provider")
+	const major = new Set(catalog.filter((e) => e.major).map((e) => e.provider))
+	const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" })
+	const sections = [
+		["Major providers", [...providers.keys()].filter((p) => major.has(p)).sort(byName)],
+		["Other providers", [...providers.keys()].filter((p) => !major.has(p)).sort(byName)],
+	].filter(([, names]) => names.length > 0)
+
 	$("builtin-list").replaceChildren(
-		...[...groups].map(([provider, entries]) => {
-			const chosen = entries.filter((e) => !setup.excluded.has(serverKey(e))).length
-			const open = setup.open.has(provider) || terms.length > 0
-			const box = el("input", { type: "checkbox", checked: chosen === entries.length, indeterminate: chosen > 0 && chosen < entries.length })
-			box.dataset.service = provider
-			box.setAttribute("aria-label", `Select all of ${provider}`)
-			const transports = [...new Set(entries.map((e) => e.transport))]
-			const toggle = el(
-				"button",
-				{ type: "button", className: "group-name" },
-				el("span", { className: "caret", ariaHidden: "true" }),
-				el("span", { className: "name", textContent: provider }),
-			)
-			toggle.dataset.open = provider
-			toggle.title = `${provider}, ${entries[0].category}`
-			toggle.setAttribute("aria-expanded", String(open))
-			return el(
-				"li",
-				{ className: "group" },
-				el(
-					"div",
-					{ className: "group-head" },
-					box,
-					toggle,
-					el(
-						"span",
-						{ className: "group-meta" },
-						...transports.filter((t) => t !== "plain").map((t) => el("span", { className: `tag tag-${t}`, textContent: TRANSPORT_LABEL[t] })),
-						el("span", { className: "count", textContent: `${chosen}/${entries.length}` }),
-					),
-				),
-				open
-					? el(
-							"ul",
-							{ className: "members" },
-							...entries.map((e) => {
-								const key = serverKey(e)
-								const member = el("input", { type: "checkbox", checked: !setup.excluded.has(key) })
-								member.dataset.key = key
-								return el(
-									"li",
-									{},
-									el(
-										"label",
-										{ title: `${e.name}, ${e.addr}, ${transportLabel(e)}` },
-										member,
-										el("span", { className: "name", textContent: e.name }),
-										el("span", { className: "addr", textContent: e.addr }),
-									),
-								)
-							}),
-						)
-					: null,
-			)
-		}),
+		...sections.flatMap(([title, names]) => [
+			el("li", { className: "picker-section", textContent: title }),
+			...names.map((p) => providerGroup(p, providers.get(p), setup.open.has(p) || terms.length > 0)),
+		]),
 	)
 }
 
@@ -1376,8 +1418,9 @@ $("builtin-list").addEventListener("change", (event) => {
 	if (box.dataset.key) {
 		if (box.checked) setup.excluded.delete(box.dataset.key)
 		else setup.excluded.add(box.dataset.key)
-	} else if (box.dataset.service) {
-		for (const e of catalog.filter((c) => c.service === box.dataset.service && isCandidate(c))) {
+	} else if (box.dataset.service || box.dataset.provider) {
+		const field = box.dataset.service ? "service" : "provider"
+		for (const e of catalog.filter((c) => c[field] === box.dataset[field] && isCandidate(c))) {
 			if (box.checked) setup.excluded.delete(serverKey(e))
 			else setup.excluded.add(serverKey(e))
 		}

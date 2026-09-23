@@ -834,6 +834,54 @@ input[type="checkbox"] {
 	font-size: 0.68rem;
 }
 
+/* Major providers, then the others. */
+.picker-section {
+	position: sticky;
+	top: 0;
+	z-index: 1;
+	padding: 6px 8px 4px;
+	border-bottom: 1px solid var(--line);
+	background: var(--well);
+	color: var(--faint);
+	font-size: 0.66rem;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+.picker .group + .picker-section {
+	border-top: 1px solid var(--line);
+}
+
+.group-meta .services {
+	margin-right: 2px;
+	color: var(--faint);
+	font-size: 0.68rem;
+}
+
+/* A service with several resolvers heads its own list. */
+.picker .service-head {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	gap: 8px;
+	align-items: center;
+	padding: 3px 0 1px;
+	font-size: 0.74rem;
+	cursor: pointer;
+}
+
+.picker .service-head .name {
+	overflow: hidden;
+	color: var(--text);
+	font-weight: 600;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.picker .service .members {
+	padding: 0 0 2px 22px;
+}
+
 .picker-empty {
 	padding: 12px 10px;
 	color: var(--muted);

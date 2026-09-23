@@ -171,9 +171,13 @@ has `null` for every latency field. See
 dnsbench tries to open <http://127.0.0.1:8080> in your browser. If it does not,
 open that address yourself. Pick a preset such as **Quick check** or
 **Plain vs encrypted**, or build a selection yourself: filter by address family,
-transport, and kind of resolver, search, and tick providers or single
-addresses. Resolvers you add under **Add your own resolvers** join the
-selection. **Edit list** opens the domain list. The estimate under the setup
+transport, and kind of resolver, and search. The list groups resolvers by the
+company that runs them, major providers first, then the rest, each in
+alphabetical order. Tick a company to take all its services, such as Cloudflare
+with Cloudflare-Security and Cloudflare-Family. Open it to tick one service or
+one address. To compare Cloudflare, Google, and Quad9 with their filters, click
+**None**, then tick those three. Resolvers you add under **Add your own
+resolvers** join the selection. **Edit list** opens the domain list. The estimate under the setup
 shows how many lookups the run makes.
 Click **Start benchmark**, or press Ctrl+Enter. **Stop** ends a run early.
 **Reset** clears the results and restores the default setup. The dashboard
