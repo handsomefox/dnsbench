@@ -35,6 +35,11 @@ func NewSSEHub() *SSEHub {
 	}
 }
 
+// sseBuffer is how many events a client may fall behind before Broadcast
+// drops events for it. A resolver on the local network can answer a
+// thousand lookups a second, and every lookup is an event.
+const sseBuffer = 1024
+
 // Add registers a new SSE client.
 func (h *SSEHub) Add() (client *sseClient, ch <-chan SSEEvent) {
 	h.mu.Lock()
@@ -43,7 +48,7 @@ func (h *SSEHub) Add() (client *sseClient, ch <-chan SSEEvent) {
 	h.nextID++
 	c := &sseClient{
 		id:   h.nextID,
-		ch:   make(chan SSEEvent, 32),
+		ch:   make(chan SSEEvent, sseBuffer),
 		done: make(chan struct{}),
 	}
 	h.clients[c.id] = c
