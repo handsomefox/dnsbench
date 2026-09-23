@@ -651,7 +651,9 @@ function renderSummary() {
 			const d = successRate(e.stats) - successRate(best.stats)
 			return d > 0 || (d === 0 && (median(e) ?? Infinity) < (median(best) ?? Infinity)) ? e : best
 		}, null)
-	const done = entries.filter((e) => e.done)
+	// A resolver that a stopped run never reached has no lookups, not failed
+	// ones, so it counts as neither finished nor failed.
+	const done = entries.filter((e) => e.done && e.stats.total > 0)
 	const failed = done.filter((e) => e.samples.length === 0 && e.stats.count === 0).length
 
 	$("sum-fastest").textContent = fastest ? formatMs(median(fastest)) : "—"

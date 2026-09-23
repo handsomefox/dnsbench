@@ -239,6 +239,12 @@ func precheckAll(ctx context.Context, runs []*resolverRun, domains []string, rep
 	}
 	_ = g.Wait() //nolint:errcheck // the goroutines keep their errors in errs
 
+	// A run stopped during the prechecks fails them all. That says nothing
+	// about the resolvers, so record nothing and run nothing.
+	if ctx.Err() != nil {
+		return nil
+	}
+
 	live := make([]*resolverRun, 0, len(runs))
 	for i, run := range runs {
 		if errs[i] == nil {

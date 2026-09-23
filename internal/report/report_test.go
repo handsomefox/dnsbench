@@ -80,3 +80,20 @@ func TestWrite_JSON(t *testing.T) {
 		t.Errorf("results = %+v, failures = %+v", got.Results, got.Failures)
 	}
 }
+
+// A resolver that a stopped run never reached is counted, not listed as
+// one with no answer.
+func TestWrite_TableUnreached(t *testing.T) {
+	rs := append(results(), bench.Result{Server: dnsclient.Server{Name: "never", Addr: "192.0.2.9"}, Stats: bench.Stats{Min: math.NaN(), Max: math.NaN(), Mean: math.NaN(), Median: math.NaN(), P95: math.NaN()}})
+	var out bytes.Buffer
+	if err := Write(&out, rs, Table); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(text, "never") {
+		t.Errorf("table lists the unreached resolver:\n%s", text)
+	}
+	if !strings.Contains(text, "2 answered, 1 did not, 1 not reached before the run stopped.") {
+		t.Errorf("table does not count the unreached resolver:\n%s", text)
+	}
+}

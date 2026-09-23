@@ -415,3 +415,22 @@ func TestWarmUp_SendsRunsLookups(t *testing.T) {
 		t.Errorf("server saw %d warmup queries, want 6: two domains, three runs each", got)
 	}
 }
+
+// A run stopped before or during the prechecks must not blame the
+// resolvers: every precheck fails then, but no lookup ran.
+func TestRun_CanceledBeforeLookups(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	cfg := Options{Repeats: 3, Timeout: time.Second, Concurrency: 2}
+	servers := []dnsclient.Server{{Name: "a", Addr: "192.0.2.1"}, {Name: "b", Addr: "192.0.2.2", TLSName: "dns.example"}}
+	results, err := Run(ctx, cfg, servers, []string{"one.example"}, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run() error = %v, want context.Canceled", err)
+	}
+	for _, r := range results {
+		if r.Stats.Errors != 0 || r.Stats.Total != 0 {
+			t.Errorf("%s: stats = %+v, want no lookups at all", r.Server.Name, r.Stats)
+		}
+	}
+}

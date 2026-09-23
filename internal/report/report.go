@@ -146,6 +146,16 @@ func writeTable(w io.Writer, valid, failed []bench.Result) error {
 				s.Median, s.P95, s.Mean, s.Min, s.Max, s.Total)
 		}
 	}
+	// A run stopped early can leave resolvers without a single lookup.
+	// They did not fail, so they only get a count.
+	var unreached int
+	failed = slices.DeleteFunc(slices.Clone(failed), func(r bench.Result) bool {
+		if r.Stats.Total == 0 {
+			unreached++
+			return true
+		}
+		return false
+	})
 	if len(failed) > 0 {
 		nameWidth, addrWidth := len("Resolver"), len("Address")
 		for _, r := range failed {
@@ -161,10 +171,16 @@ func writeTable(w io.Writer, valid, failed []bench.Result) error {
 			fmt.Fprintf(&b, "%-*s %-*s %8d %8d\n", nameWidth, r.Server.Name, addrWidth, r.Server.Addr, r.Stats.Errors, r.Stats.Total)
 		}
 	}
-	if len(valid)+len(failed) == 0 {
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	switch {
+	case len(valid)+len(failed) == 0 && unreached == 0:
 		b.WriteString("No results.\n")
-	} else {
-		fmt.Fprintf(&b, "\n%d answered, %d did not.\n", len(valid), len(failed))
+	case unreached > 0:
+		fmt.Fprintf(&b, "%d answered, %d did not, %d not reached before the run stopped.\n", len(valid), len(failed), unreached)
+	default:
+		fmt.Fprintf(&b, "%d answered, %d did not.\n", len(valid), len(failed))
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
