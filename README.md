@@ -135,9 +135,14 @@ resolver with no successful lookup has `null` for `min`, `max`, and `mean`. See
 ```
 
 dnsbench tries to open your browser at that address. If it does not, open
-<http://127.0.0.1:8080> yourself. Pick the domains, the resolvers, and the
-options, then click **Start benchmark**. **Stop** ends a run early. **Reset**
-clears the results and restores the default settings.
+<http://127.0.0.1:8080> yourself. Pick a preset such as **Quick check** or
+**Plain vs encrypted**, or build a selection yourself: filter by address family,
+transport, and kind of resolver, search, and tick providers or single
+addresses. Resolvers you add under **Add your own resolvers** join the
+selection. The estimate under the setup shows how many lookups the run makes.
+Click **Start benchmark**, or press Ctrl+Enter. **Stop** ends a run early.
+**Reset** clears the results and restores the default setup. The dashboard
+remembers your setup between visits.
 
 Each resolver gets one row, with every lookup plotted as a dot on a log-scale
 millisecond axis. The bar marks the median, the caret marks the 95th

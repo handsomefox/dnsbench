@@ -41,34 +41,14 @@ type runRequest struct {
 	Options   runOptions  `json:"options"`
 }
 
-// pageData fills ui/index.html.tmpl. Builtins goes into a JSON data island
-// that ui/static/app.js reads to preview the built-in resolvers. It holds
-// every combination of the filters, keyed by builtinsKey, so the preview
-// always matches what buildRunConfig runs.
+// pageData fills ui/index.html.tmpl. Builtins and DefaultDomains go into
+// JSON data islands that ui/static/app.js reads. The dashboard filters the
+// catalog itself and always sends /api/run an explicit resolver list.
 type pageData struct {
-	Domains  string
-	Options  runOptions
-	Builtins map[string][]DNSServer
-}
-
-// builtinsKey must match the key that app.js builds in builtinSelection.
-func builtinsKey(f builtinFilter) string {
-	return fmt.Sprintf("%t/%t/%s/%s", f.onlyMajor, f.primaryOnly, f.family, f.transport)
-}
-
-func builtinsByFilter() map[string][]DNSServer {
-	lists := make(map[string][]DNSServer)
-	for _, onlyMajor := range []bool{false, true} {
-		for _, primaryOnly := range []bool{false, true} {
-			for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6, FamilyAll} {
-				for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportDoQ, TransportAll} {
-					f := builtinFilter{onlyMajor: onlyMajor, primaryOnly: primaryOnly, family: family, transport: transport}
-					lists[builtinsKey(f)] = builtinServers(f)
-				}
-			}
-		}
-	}
-	return lists
+	Domains        string
+	DefaultDomains []string
+	Options        runOptions
+	Builtins       []builtinEntry
 }
 
 type uiServer struct {
@@ -164,7 +144,8 @@ func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
 			Family:      s.baseConfig.Family.String(),
 			Transport:   s.baseConfig.Transport.String(),
 		},
-		Builtins: builtinsByFilter(),
+		DefaultDomains: defaultSites,
+		Builtins:       builtinCatalog(),
 	}
 
 	// Render into a buffer so a template error still produces a clean 500.

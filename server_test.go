@@ -202,27 +202,17 @@ func TestUIServer_BuiltinsDataIsland(t *testing.T) {
 		t.Fatal("builtins data island is not closed")
 	}
 
-	var got map[string][]DNSServer
+	var got []builtinEntry
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("data island is not valid JSON: %v\n%s", err, raw)
 	}
-	// app.js builds these keys from the form values, so they must exist
-	// verbatim: major/primary/family/transport.
-	want := 0
-	for _, major := range []string{"false", "true"} {
-		for _, primary := range []string{"false", "true"} {
-			for _, family := range []string{"ipv4", "ipv6", "all"} {
-				for _, transport := range []string{"plain", "dot", "doh", "doq", "all"} {
-					key := major + "/" + primary + "/" + family + "/" + transport
-					want++
-					if len(got[key]) == 0 {
-						t.Errorf("data island has no resolvers under %q", key)
-					}
-				}
-			}
-		}
+	if len(got) != len(builtinCatalog()) {
+		t.Fatalf("data island has %d resolvers, want %d", len(got), len(builtinCatalog()))
 	}
-	if len(got) != want {
-		t.Errorf("data island has %d keys, want %d", len(got), want)
+	// app.js filters on these fields, so every entry needs them.
+	for _, e := range got {
+		if e.Name == "" || e.Addr == "" || e.Provider == "" || e.Category == "" || e.Family == "" || e.Transport == "" {
+			t.Errorf("entry is missing a field: %+v", e)
+		}
 	}
 }

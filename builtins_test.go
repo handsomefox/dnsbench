@@ -261,3 +261,26 @@ func TestIsValidDomain(t *testing.T) {
 		}
 	}
 }
+
+// The dashboard filters the catalog, and the CLI filters through
+// builtinServers. Both must agree with the catalog's own fields.
+func TestBuiltinCatalog(t *testing.T) {
+	categories := map[string]bool{"Global": true, "Filtering": true, "Privacy": true, "Regional": true}
+	names := map[string]bool{}
+	for _, e := range builtinCatalog() {
+		if !categories[e.Category] {
+			t.Errorf("%s has unknown category %q", e.Name, e.Category)
+		}
+		if names[e.Name] {
+			t.Errorf("duplicate name %s", e.Name)
+		}
+		names[e.Name] = true
+		if e.Primary != strings.HasSuffix(e.Name, "-1") {
+			t.Errorf("%s: primary is %v", e.Name, e.Primary)
+		}
+		plain := e.TLSName == "" && e.DoHURL == "" && e.DoQName == ""
+		if plain != (e.Transport == "plain") {
+			t.Errorf("%s has transport %s, which its fields contradict", e.Name, e.Transport)
+		}
+	}
+}

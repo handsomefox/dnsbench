@@ -28,19 +28,25 @@ field just arrives `undefined`. Change both files together, then check the
 dashboard against a live run:
 
 1. Run `make run-ui` and open <http://127.0.0.1:8080>.
-2. Confirm that the domain list and the built-in resolvers load, and that the
-   family and transport filters change the resolver list.
+2. Confirm that the presets, the domain list, and the built-in resolvers load,
+   and that the filters and the search change the resolver list.
 3. Clear one resolver's checkbox, then start a benchmark. Confirm that the
    ladder fills in without that resolver, and that clicking a row opens its
    slowest domains and errors.
-4. Stop the run. Confirm that the status reads `stopped` and **Start
+4. Reload the page. Confirm that the setup is the one you left.
+5. Stop the run. Confirm that the status reads `stopped` and **Start
    benchmark** is enabled again.
-5. Click **Reset**. Confirm that the results clear and the form shows the
+6. Click **Reset**. Confirm that the results clear and the form shows the
    defaults again.
-6. Check the page with the system in dark mode and at phone width.
+7. Check the page with the system in dark mode and at phone width.
 
 `app.js` builds every element with `textContent`. Resolver names and error
 strings come from the user, so do not switch to `innerHTML`.
+
+The dashboard filters the resolver catalog from `builtinCatalog` in `cli.go`
+itself and sends `/api/run` an explicit resolver list, so the list you see is
+the list that runs. The CLI filters the same catalog through
+`builtinServers`.
 
 ## What not to change
 

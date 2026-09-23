@@ -385,59 +385,90 @@ type builtinFilter struct {
 	transport   Transport
 }
 
-// builtinServers lists the built-in resolvers that match f, in the order
-// of the providers table. For each provider, plain DNS comes first, then
-// DoT, DoH, and DoQ, and IPv4 comes before IPv6. The names follow the pattern
+// builtinEntry is one built-in resolver with the facts that the filters
+// and the dashboard select by. The JSON form goes to the dashboard.
+type builtinEntry struct {
+	DNSServer
+	Provider  string `json:"provider"`
+	Category  string `json:"category"`
+	Major     bool   `json:"major"`
+	Primary   bool   `json:"primary"`   // the first address in its list
+	Family    string `json:"family"`    // ipv4 or ipv6
+	Transport string `json:"transport"` // plain, dot, doh, or doq
+}
+
+// builtinCatalog lists every built-in resolver, in the order of the
+// providers table. For each provider, plain DNS comes first, then DoT,
+// DoH, and DoQ, and IPv4 comes before IPv6. The names follow the pattern
 // in the provider comment.
-func builtinServers(f builtinFilter) []DNSServer {
-	var servers []DNSServer
-	add := func(p provider, addrs []string, v6 bool, transport Transport) {
-		if f.primaryOnly && len(addrs) > 1 {
-			addrs = addrs[:1]
-		}
-		for i, addr := range addrs {
-			name := p.name
-			s := DNSServer{Addr: addr}
+func builtinCatalog() []builtinEntry {
+	var entries []builtinEntry
+	for _, p := range providers {
+		for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportDoQ} {
+			suffix := ""
+			server := DNSServer{}
 			switch transport {
+			case TransportPlain:
+				if p.encryptedOnly {
+					continue
+				}
 			case TransportDoT:
-				name += "-DoT"
-				s.TLSName = p.tlsName
+				if p.tlsName == "" {
+					continue
+				}
+				suffix, server.TLSName = "-DoT", p.tlsName
 			case TransportDoH:
-				name += "-DoH"
-				s.DoHURL = p.dohURL
+				if p.dohURL == "" {
+					continue
+				}
+				suffix, server.DoHURL = "-DoH", p.dohURL
 			case TransportDoQ:
-				name += "-DoQ"
-				s.DoQName = p.doqName
+				if p.doqName == "" {
+					continue
+				}
+				suffix, server.DoQName = "-DoQ", p.doqName
 			default:
+				continue
 			}
-			if v6 {
-				name += "-v6"
+			for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6} {
+				addrs, v6 := p.ipv4, ""
+				if family == FamilyIPv6 {
+					addrs, v6 = p.ipv6, "-v6"
+				}
+				for i, addr := range addrs {
+					s := server
+					s.Addr = addr
+					s.Name = fmt.Sprintf("%s%s%s-%d", p.name, suffix, v6, i+1)
+					entries = append(entries, builtinEntry{
+						DNSServer: s,
+						Provider:  p.name,
+						Category:  p.category,
+						Major:     p.major,
+						Primary:   i == 0,
+						Family:    family.String(),
+						Transport: transport.String(),
+					})
+				}
 			}
-			s.Name = fmt.Sprintf("%s-%d", name, i+1)
-			servers = append(servers, s)
 		}
 	}
-	for _, p := range providers {
-		if f.onlyMajor && !p.major {
-			continue
-		}
-		for _, transport := range []Transport{TransportPlain, TransportDoT, TransportDoH, TransportDoQ} {
-			if f.transport != TransportAll && f.transport != transport {
-				continue
-			}
-			switch {
-			case transport == TransportPlain && p.encryptedOnly,
-				transport == TransportDoT && p.tlsName == "",
-				transport == TransportDoH && p.dohURL == "",
-				transport == TransportDoQ && p.doqName == "":
-				continue
-			}
-			if f.family != FamilyIPv6 {
-				add(p, p.ipv4, false, transport)
-			}
-			if f.family != FamilyIPv4 {
-				add(p, p.ipv6, true, transport)
-			}
+	return entries
+}
+
+func (f builtinFilter) matches(e *builtinEntry) bool {
+	return (!f.onlyMajor || e.Major) &&
+		(!f.primaryOnly || e.Primary) &&
+		(f.family == FamilyAll || f.family.String() == e.Family) &&
+		(f.transport == TransportAll || f.transport.String() == e.Transport)
+}
+
+// builtinServers lists the built-in resolvers that match f, in catalog
+// order.
+func builtinServers(f builtinFilter) []DNSServer {
+	var servers []DNSServer
+	for _, e := range builtinCatalog() {
+		if f.matches(&e) {
+			servers = append(servers, e.DNSServer)
 		}
 	}
 	return servers

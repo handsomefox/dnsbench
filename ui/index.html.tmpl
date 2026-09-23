@@ -16,9 +16,9 @@
 	</div>
 	<div class="actions">
 		<span id="status" class="status" data-status="idle">idle</span>
-		<button type="button" id="reset" class="quiet">Reset</button>
+		<button type="button" id="reset" class="quiet" title="Clear the results and restore the default setup">Reset</button>
 		<button type="button" id="stop" class="danger" disabled>Stop</button>
-		<button type="submit" id="start" form="config">Start benchmark</button>
+		<button type="submit" id="start" form="config" title="Start benchmark (Ctrl+Enter)">Start benchmark</button>
 	</div>
 	<div class="progress" aria-hidden="true"><span id="progress-fill"></span></div>
 </header>
@@ -32,11 +32,11 @@
 
 			<section class="block">
 				<div class="block-head">
-					<h2><label for="domains">Domains</label></h2>
-					<span class="count"><span id="domain-count">0</span> domains</span>
+					<h2>Presets</h2>
+					<span class="count" id="preset-name">custom</span>
 				</div>
-				<textarea id="domains" name="domains" rows="8" spellcheck="false">{{.Domains}}</textarea>
-				<p class="hint">One per line. Lines starting with <code>#</code> are skipped.</p>
+				<div class="presets" id="presets" role="group" aria-label="Presets"></div>
+				<p class="preset-detail" id="preset-detail"></p>
 			</section>
 
 			<section class="block">
@@ -45,39 +45,58 @@
 					<span class="count" id="resolver-count">0 selected</span>
 				</div>
 
-				<div class="segmented" role="radiogroup" aria-label="Resolver source">
-					<label><input type="radio" name="resolver-source" value="builtin" checked><span>Built-in</span></label>
-					<label><input type="radio" name="resolver-source" value="custom"><span>Your own</span></label>
+				<div class="filter-grid">
+					<span class="filter-label">Address</span>
+					<div class="toggles" id="filter-family" role="group" aria-label="Address family">
+						<button type="button" data-value="ipv4">IPv4</button>
+						<button type="button" data-value="ipv6">IPv6</button>
+					</div>
+					<span class="filter-label">Transport</span>
+					<div class="toggles" id="filter-transport" role="group" aria-label="Transport">
+						<button type="button" data-value="plain" title="Plain DNS over UDP and TCP port 53">Plain</button>
+						<button type="button" data-value="dot" title="DNS over TLS, TCP port 853">DoT</button>
+						<button type="button" data-value="doh" title="DNS over HTTPS, TCP port 443">DoH</button>
+						<button type="button" data-value="doq" title="DNS over QUIC, UDP port 853">DoQ</button>
+					</div>
+					<span class="filter-label">Kind</span>
+					<div class="toggles" id="filter-category" role="group" aria-label="Kind of resolver">
+						<button type="button" data-value="Global" title="Large public resolvers without filtering">Global</button>
+						<button type="button" data-value="Filtering" title="Resolvers that block ads, malware, or adult content">Filtering</button>
+						<button type="button" data-value="Privacy" title="Small operators that promise no logging">Privacy</button>
+						<button type="button" data-value="Regional" title="Resolvers run for one country or region">Regional</button>
+					</div>
+				</div>
+				<div class="checks">
+					<label class="check" title="Cloudflare, Google, Quad9, AdGuard, and NextDNS"><input type="checkbox" id="only-major"> Major providers only</label>
+					<label class="check" title="Most providers list two addresses that perform alike. Test only the first, such as Cloudflare-1."><input type="checkbox" id="primary-only"> First address only</label>
 				</div>
 
-				<div id="builtin-options">
-					<div class="filters">
-						<div class="segmented small" role="radiogroup" aria-label="Address family">
-							<label><input type="radio" name="family" value="ipv4" {{if eq .Options.Family "ipv4"}}checked{{end}}><span>IPv4</span></label>
-							<label><input type="radio" name="family" value="ipv6" {{if eq .Options.Family "ipv6"}}checked{{end}}><span>IPv6</span></label>
-							<label><input type="radio" name="family" value="all" {{if eq .Options.Family "all"}}checked{{end}}><span>Both</span></label>
-						</div>
-						<div class="segmented small" role="radiogroup" aria-label="Transport">
-							<label><input type="radio" name="transport" value="plain" {{if eq .Options.Transport "plain"}}checked{{end}}><span>Plain</span></label>
-							<label><input type="radio" name="transport" value="dot" {{if eq .Options.Transport "dot"}}checked{{end}}><span>DoT</span></label>
-							<label><input type="radio" name="transport" value="doh" {{if eq .Options.Transport "doh"}}checked{{end}}><span>DoH</span></label>
-							<label><input type="radio" name="transport" value="doq" {{if eq .Options.Transport "doq"}}checked{{end}}><span>DoQ</span></label>
-							<label><input type="radio" name="transport" value="all" {{if eq .Options.Transport "all"}}checked{{end}}><span>All</span></label>
-						</div>
-						<label class="check"><input type="checkbox" id="only-major" {{if .Options.OnlyMajor}}checked{{end}}> Major providers only</label>
-						<label class="check" title="Most providers list two addresses that perform alike. Test only the first, such as Cloudflare-1, to halve the run."><input type="checkbox" id="primary-only" {{if .Options.PrimaryOnly}}checked{{end}}> First address only</label>
-					</div>
-					<div class="picker-tools">
-						<button type="button" class="link" id="select-all">Select all</button>
-						<button type="button" class="link" id="select-none">Select none</button>
-					</div>
-					<ul id="builtin-list" class="picker"></ul>
+				<div class="picker-bar">
+					<input type="search" id="resolver-search" placeholder="Search providers or addresses  /" aria-label="Search resolvers">
+					<button type="button" class="link" id="select-all">All</button>
+					<button type="button" class="link" id="select-none">None</button>
 				</div>
+				<ul id="builtin-list" class="picker"></ul>
 
-				<div id="custom-options" hidden>
-					<textarea id="custom-resolvers" rows="7" spellcheck="false" placeholder="Cloudflare;1.1.1.1&#10;Cloudflare-DoT;1.1.1.1;cloudflare-dns.com&#10;Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query&#10;AdGuard-DoQ;94.140.14.14;quic://dns.adguard-dns.com&#10;Router;fe80::1%eth0"></textarea>
-					<p class="hint">One resolver per line: <code>name;ip</code> for plain DNS, <code>name;ip;tls-name</code> for DNS over TLS, where <code>tls-name</code> is the name on its certificate, <code>name;ip;https-url</code> for DNS over HTTPS, or <code>name;ip;quic://tls-name</code> for DNS over QUIC. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
+				<details class="custom" id="custom-block">
+					<summary>Add your own resolvers <span class="count" id="custom-count"></span></summary>
+					<textarea id="custom-resolvers" rows="5" spellcheck="false" placeholder="Router;192.168.1.1&#10;Cloudflare-DoH;1.1.1.1;https://cloudflare-dns.com/dns-query&#10;AdGuard-DoQ;94.140.14.14;quic://dns.adguard-dns.com"></textarea>
+					<p class="hint">One per line, added to the selection above: <code>name;ip</code> for plain DNS, <code>name;ip;tls-name</code> for DoT, <code>name;ip;https-url</code> for DoH, or <code>name;ip;quic://tls-name</code> for DoQ. A link-local IPv6 address needs its zone, as in <code>fe80::1%eth0</code>.</p>
+					<ul class="problems" id="custom-problems"></ul>
+				</details>
+			</section>
+
+			<section class="block">
+				<div class="block-head">
+					<h2><label for="domains">Domains</label></h2>
+					<span class="count"><span id="domain-count">0</span> domains</span>
 				</div>
+				<div class="toggles single" id="domain-sets" role="group" aria-label="Domain list">
+					<button type="button" data-value="quick" title="Twelve of the most visited sites">12 popular</button>
+					<button type="button" data-value="all" title="The full built-in list">All built-in</button>
+				</div>
+				<textarea id="domains" name="domains" rows="7" spellcheck="false">{{.Domains}}</textarea>
+				<p class="hint">One per line. Lines starting with <code>#</code> are skipped.</p>
 			</section>
 
 			<section class="block">
@@ -97,6 +116,8 @@
 					</label>
 				</div>
 			</section>
+
+			<p class="estimate" id="estimate"></p>
 		</fieldset>
 	</form>
 
@@ -109,6 +130,7 @@
 			<div class="ladder-head">
 				<h2 id="ladder-title">Latency of every lookup</h2>
 				<div class="ladder-tools">
+					<div class="toggles small" id="ladder-transport" role="group" aria-label="Show transports" hidden></div>
 					<label class="inline">Sort by
 						<select id="sort">
 							<option value="p50">median</option>
@@ -142,5 +164,7 @@
 </div>
 
 <script type="application/json" id="builtins">{{.Builtins}}</script>
+<script type="application/json" id="default-domains">{{.DefaultDomains}}</script>
+<script type="application/json" id="defaults">{{.Options}}</script>
 </body>
 </html>
