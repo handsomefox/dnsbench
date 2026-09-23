@@ -198,14 +198,31 @@ func retryWithBackoff[T any](
 	return val, err
 }
 
+// isValidDomain reports whether domain is a hostname with at least two
+// labels. Each label is 1 to 63 letters, digits, hyphens, or underscores,
+// and does not start or end with a hyphen. Underscores appear in real
+// names such as _dmarc.example.com.
 func isValidDomain(domain string) bool {
-	if domain == "" || len(domain) > 253 {
+	if len(domain) > 253 {
 		return false
 	}
-	return !strings.Contains(domain, " ") &&
-		strings.Contains(domain, ".") &&
-		!strings.HasPrefix(domain, ".") &&
-		!strings.HasSuffix(domain, ".")
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, label := range labels {
+		if label == "" || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		if strings.ContainsFunc(label, func(c rune) bool { return !isLabelChar(c) }) {
+			return false
+		}
+	}
+	return true
+}
+
+func isLabelChar(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_'
 }
 
 // isValidServerAddr reports whether addr is an IP literal without a port.

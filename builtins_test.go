@@ -226,3 +226,27 @@ func TestIsValidServerAddr(t *testing.T) {
 		}
 	}
 }
+
+func TestIsValidDomain(t *testing.T) {
+	tests := map[string]bool{
+		"example.com":                         true,
+		"a.b.c.example.co.uk":                 true,
+		"_dmarc.example.com":                  true,
+		"xn--bcher-kva.example":               true,
+		"example":                             false,
+		".example.com":                        false,
+		"example.com.":                        false,
+		"exa mple.com":                        false,
+		"-bad.example.com":                    false,
+		"bad-.example.com":                    false,
+		"http://cloudflare-dns.com/dns-query": false,
+		"dns.google:853":                      false,
+		strings.Repeat("a", 64) + ".com":      false,
+		"":                                    false,
+	}
+	for domain, want := range tests {
+		if got := isValidDomain(domain); got != want {
+			t.Errorf("isValidDomain(%q) = %v, want %v", domain, got, want)
+		}
+	}
+}
