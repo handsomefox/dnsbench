@@ -22,6 +22,22 @@ go install github.com/handsomefox/dnsbench@latest
 The examples below run `./bin/dnsbench` from a checkout. After `go install`,
 run `dnsbench` instead.
 
+### On Android with Termux
+
+In [Termux](https://termux.dev), download the `Android_arm64` archive and run
+the binary from it:
+
+```bash
+curl -LO https://github.com/handsomefox/dnsbench/releases/latest/download/dnsbench_Android_arm64.tar.gz
+tar -xzf dnsbench_Android_arm64.tar.gz
+./dnsbench -major -primary
+```
+
+`./dnsbench -ui` opens the dashboard in the Android browser through
+`termux-open-url`, which the `termux-tools` package provides. The Android build
+checks certificates against Android's own CA store. The `Linux_arm64` build
+also runs in Termux and uses the same store when it finds no Linux one.
+
 ## Build
 
 You need Go 1.27.1 or later.

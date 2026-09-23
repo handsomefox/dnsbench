@@ -15,6 +15,7 @@ import (
 
 func main() {
 	ctx := context.Background()
+	useAndroidCerts()
 	config := parseFlags()
 
 	initLogger(config.LogType)

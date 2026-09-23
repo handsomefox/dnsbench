@@ -347,6 +347,9 @@ func openBrowser(ctx context.Context, url string) error {
 	args := make([]string, 0, 3)
 
 	switch runtime.GOOS {
+	case "android":
+		// Termux opens URLs in the Android browser with termux-open-url.
+		cmd = "termux-open-url"
 	case "windows":
 		cmd = "cmd"
 		args = []string{"/c", "start"}
