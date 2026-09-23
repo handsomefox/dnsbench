@@ -1364,10 +1364,12 @@ $("select-none").addEventListener("click", () => {
 	setupChanged()
 })
 
-// Text and number fields: re-render on input, but not for the picker,
-// whose own handlers run on change.
+// Text and number fields: re-render on input. A checkbox fires input
+// before change, so re-rendering here would restore its old state before
+// its change handler reads the click. Checkboxes and the picker have
+// their own change handlers.
 form.addEventListener("input", (event) => {
-	if (event.target.closest("#builtin-list") || event.target.id === "resolver-search") return
+	if (event.target.type === "checkbox" || event.target.closest("#builtin-list") || event.target.id === "resolver-search") return
 	setupChanged()
 })
 
