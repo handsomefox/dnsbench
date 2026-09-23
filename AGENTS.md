@@ -1,14 +1,7 @@
 # Contributing to dnsbench
 
 Build commands are in the [Makefile](Makefile). Flag and report behavior is in
-the [CLI reference](docs/cli.md). Go and Node versions are in
-[Build](README.md#build).
-
-## Build the Web UI first
-
-`server.go` embeds `webui/dist/`, and that directory is gitignored. In a fresh
-checkout `go build` and `go test` both fail until it exists, so run `make build`
-before you reach for the Go toolchain directly.
+the [CLI reference](docs/cli.md). The Go version is in [Build](README.md#build).
 
 ## Checks
 
@@ -16,21 +9,34 @@ before you reach for the Go toolchain directly.
 go fmt ./...
 go test -race ./...
 golangci-lint run ./...
-npm run lint --prefix webui
+node --check ui/static/app.js
 ```
 
-`.golangci.yaml` configures the Go linter. CI runs all four on every push and
-pull request, so a lint failure now blocks the merge.
+`make test` and `make lint` run the first three. `.golangci.yaml` configures the
+Go linter. CI runs all four on every push to `main` and on every pull request,
+and a failure blocks the merge. Node is only a syntax check for the dashboard
+script. Nothing in the repository installs npm packages.
 
-## Go and TypeScript disagree silently
+## Go and the dashboard script disagree silently
 
-`server.go` defines the request and response structs, and `webui/src/types.ts`
-repeats them by hand. The event payloads are looser still: `reporter.go` builds
-each `Detail` as a `map[string]interface{}` with string-literal keys, and the
-dashboard reads them back out of an untyped `Record<string, unknown>`. Rename a
-key on either side and nothing fails to compile. The field just arrives
-undefined. Change both files together, then check the dashboard against a live
-run, following [Web UI checks](webui/README.md#check-your-changes).
+The Web UI is `ui/index.html.tmpl`, `ui/static/app.js`, and
+`ui/static/style.css`, embedded by `server.go`. `server.go` defines the request
+structs that `app.js` sends. `reporter.go` builds each event `Detail` as a
+`map[string]any` with string-literal keys, and `app.js` reads those keys back
+by name. Rename a key on either side and nothing fails to compile or lint. The
+field just arrives `undefined`. Change both files together, then check the
+dashboard against a live run:
+
+1. Run `make run-ui` and open <http://127.0.0.1:8080>.
+2. Confirm that the domain list and the built-in resolvers load.
+3. Start a benchmark. Watch the recent lookups and the results fill in.
+4. Stop the run. Confirm that the status reads `stopped` and **Start
+   benchmark** is enabled again.
+5. Click **Reset**. Confirm that the results clear and the form shows the
+   defaults again.
+
+`app.js` builds every element with `textContent`. Resolver names and error
+strings come from the user, so do not switch to `innerHTML`.
 
 ## What not to change
 

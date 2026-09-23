@@ -35,6 +35,3 @@ go.work.sum
 
 # Added by goreleaser init:
 dist/
-webui/node_modules/
-webui/dist/
-!webui/dist/.keep

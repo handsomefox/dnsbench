@@ -14,7 +14,6 @@ concurrency:
 
 env:
   GO_VERSION: "1.27.1"
-  NODE_VERSION: "24"
   GOLANGCI_LINT_VERSION: v2.13.2
 
 defaults:
@@ -38,25 +37,8 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
 
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: webui/package-lock.json
-
       - name: Trace toolchain
-        run: |
-          go version
-          node --version
-          npm --version
-
-      # server.go embeds webui/dist, which is gitignored, so the Go build fails
-      # until the Web UI exists.
-      - name: Build the Web UI
-        run: |
-          npm ci --prefix webui
-          npm run build --prefix webui
+        run: go version
 
       - name: Check formatting
         run: |
@@ -76,6 +58,11 @@ jobs:
       - name: Test
         run: go test -race -v ./...
 
+      # ui/static/app.js ships without a build step. The runner image's Node
+      # catches syntax errors before the file reaches a browser.
+      - name: Check dashboard script syntax
+        run: node --check ui/static/app.js
+
   lint:
     name: Lint
     permissions:
@@ -92,18 +79,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: go.sum
 
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: webui/package-lock.json
-
-      - name: Build the Web UI
-        run: |
-          npm ci --prefix webui
-          npm run build --prefix webui
-
       # Installed from the released binary rather than built with `go install`,
       # which needs a Go toolchain at least as new as the linter itself. The
       # pinned version must still be built with a Go no older than this module's
@@ -113,29 +88,3 @@ jobs:
         with:
           version: ${{ env.GOLANGCI_LINT_VERSION }}
           args: ./...
-
-  webui:
-    name: Web UI
-    permissions:
-      contents: read
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: webui/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci --prefix webui
-
-      - name: Lint
-        run: npm run lint --prefix webui
-
-      - name: Build
-        run: npm run build --prefix webui

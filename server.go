@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -17,17 +19,10 @@ import (
 	"time"
 )
 
-//go:embed webui/dist/* webui/dist/assets/*
-var webUIFS embed.FS
+//go:embed ui
+var uiFS embed.FS
 
-var webUISub fs.FS
-
-func init() {
-	sub, err := fs.Sub(webUIFS, "webui/dist")
-	if err == nil {
-		webUISub = sub
-	}
-}
+var pageTemplate = template.Must(template.ParseFS(uiFS, "ui/index.html.tmpl"))
 
 type runOptions struct {
 	Repeats     int  `json:"repeats"`
@@ -43,11 +38,17 @@ type runRequest struct {
 	Options   runOptions  `json:"options"`
 }
 
-type defaultsResponse struct {
+// pageData fills ui/index.html.tmpl. Builtins goes into a JSON data island
+// that ui/static/app.js reads to preview the built-in resolver lists.
+type pageData struct {
+	Domains  string
+	Options  runOptions
+	Builtins builtinLists
+}
+
+type builtinLists struct {
 	Resolvers      []DNSServer `json:"resolvers"`
 	MajorResolvers []DNSServer `json:"majorResolvers"`
-	Domains        []string    `json:"domains"`
-	Options        runOptions  `json:"options"`
 }
 
 type uiServer struct {
@@ -60,34 +61,15 @@ type uiServer struct {
 }
 
 func serveDashboard(ctx context.Context, config *Config) error {
-	if webUISub == nil {
-		return errors.New("embedded UI assets not found; run `make ui-build` first")
-	}
-
-	hub := NewSSEHub()
 	srv := &uiServer{
-		hub:        hub,
+		hub:        NewSSEHub(),
 		baseConfig: config,
 		ctx:        ctx,
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/defaults", srv.handleDefaults)
-	mux.HandleFunc("/api/run", srv.handleRun)
-	mux.HandleFunc("/api/stop", srv.handleStop)
-	mux.HandleFunc("/api/reset", srv.handleReset)
-	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
-		hub.Handle(w, r)
-	})
-
-	// Static UI at root
-	fileServer := http.FileServer(http.FS(webUISub))
-	mux.Handle("/assets/", fileServer)
-	mux.Handle("/", spaHandler{fs: webUISub, fileServer: fileServer})
-
 	server := &http.Server{
 		Addr:              config.ListenAddr,
-		Handler:           mux,
+		Handler:           srv.routes(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
@@ -133,28 +115,53 @@ func serveDashboard(ctx context.Context, config *Config) error {
 	return nil
 }
 
-func (s *uiServer) handleDefaults(w http.ResponseWriter, _ *http.Request) {
-	resp := defaultsResponse{
-		Resolvers:      builtInResolvers,
-		MajorResolvers: builtinMajorResolvers,
-		Domains:        defaultSites,
+func (s *uiServer) routes() http.Handler {
+	static, err := fs.Sub(uiFS, "ui/static")
+	if err != nil {
+		panic(err) // ui/static is embedded at build time.
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", s.handleIndex)
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(static)))
+	mux.HandleFunc("POST /api/run", s.handleRun)
+	mux.HandleFunc("POST /api/stop", s.handleStop)
+	mux.HandleFunc("POST /api/reset", s.handleReset)
+	mux.HandleFunc("GET /api/events", s.hub.Handle)
+	return mux
+}
+
+func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
+	data := pageData{
+		Domains: strings.Join(defaultSites, "\n"),
 		Options: runOptions{
 			Repeats:     s.baseConfig.Repeats,
 			TimeoutMs:   int(s.baseConfig.LookupTimeout.Milliseconds()),
 			Concurrency: s.baseConfig.MaxConcurrency,
 			Warmup:      s.baseConfig.WarmupRuns,
+			OnlyMajor:   s.baseConfig.OnlyMajorResolvers,
+		},
+		Builtins: builtinLists{
+			Resolvers:      builtInResolvers,
+			MajorResolvers: builtinMajorResolvers,
 		},
 	}
-	writeJSON(w, resp)
+
+	// Render into a buffer so a template error still produces a clean 500.
+	var buf bytes.Buffer
+	if err := pageTemplate.Execute(&buf, data); err != nil {
+		slog.Error("failed to render the dashboard", slogErr(err))
+		http.Error(w, "failed to render page", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := buf.WriteTo(w); err != nil {
+		slog.Warn("failed to write the dashboard", slogErr(err))
+	}
 }
 
 //nolint:contextcheck // uses server lifetime context so runs persist beyond the request
 func (s *uiServer) handleRun(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	var req runRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -193,12 +200,7 @@ func (s *uiServer) handleRun(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"runId": runID})
 }
 
-func (s *uiServer) handleStop(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (s *uiServer) handleStop(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	cancel := s.cancel
 	runID := s.currentRun
@@ -223,12 +225,7 @@ func (s *uiServer) handleStop(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]string{"status": "stopped", "runId": runID})
 }
 
-func (s *uiServer) handleReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (s *uiServer) handleReset(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	if s.cancel != nil {
 		s.cancel()
@@ -263,7 +260,7 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 		return nil, nil, nil, errors.New("timeout must be at least 100ms")
 	}
 	cfg.WarmupRuns = req.Options.Warmup
-	cfg.OnlyMajorResolvers = cfg.OnlyMajorResolvers || req.Options.OnlyMajor
+	cfg.OnlyMajorResolvers = req.Options.OnlyMajor
 
 	domains := req.Domains
 	if len(domains) == 0 {
@@ -302,42 +299,6 @@ func writeJSON(w http.ResponseWriter, v any) {
 	if err := enc.Encode(v); err != nil {
 		http.Error(w, "failed to encode response", http.StatusInternalServerError)
 	}
-}
-
-// spaHandler serves static files and falls back to index.html for SPA routes.
-type spaHandler struct {
-	fs         fs.FS
-	fileServer http.Handler
-}
-
-func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Try to open the requested path from the embedded fs.
-	path := strings.TrimPrefix(r.URL.Path, "/")
-	if path == "" {
-		path = "index.html"
-	}
-	if f, err := h.fs.Open(path); err == nil {
-		defer func() {
-			if cerr := f.Close(); cerr != nil {
-				slog.Warn("failed to close asset file", slogErr(cerr))
-			}
-		}()
-		h.fileServer.ServeHTTP(w, r)
-		return
-	}
-	// Fallback to index.html for client-side routing.
-	index, err := h.fs.Open("index.html")
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	defer func() {
-		if cerr := index.Close(); cerr != nil {
-			slog.Warn("failed to close index.html", slogErr(cerr))
-		}
-	}()
-	r.URL.Path = "/"
-	h.fileServer.ServeHTTP(w, r)
 }
 
 // openBrowser tries to open the given URL in the user's default browser.

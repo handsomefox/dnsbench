@@ -10,8 +10,7 @@ UI shows a run while it happens.
 
 ## Build
 
-You need Go 1.27.1 or later, Make, and Node.js. CI builds with Node 24. Vite 7
-also runs on Node 20.19.0 or later and on 22.12.0 or later.
+You need Go 1.27.1 or later.
 
 ```bash
 git clone https://github.com/handsomefox/dnsbench.git
@@ -19,12 +18,9 @@ cd dnsbench
 make build
 ```
 
-`make build` builds the Web UI, runs the Go tests, and writes `bin/dnsbench`.
-
-`server.go` embeds `webui/dist/`, and that directory is not committed, so plain
-`go build` and `go test` fail in a fresh checkout until the Web UI is built.
-`go install github.com/handsomefox/dnsbench@latest` fails for the same reason.
-Build through Make.
+`make build` runs the tests and writes `bin/dnsbench`. Plain `go build` works
+too. The Web UI is a Go template, a stylesheet, and one script in `ui/`. The
+binary embeds all three, so the build needs no Node.js.
 
 ## Run a benchmark
 
@@ -90,8 +86,8 @@ resolver with no successful lookup has `null` for `min`, `max`, and `mean`. See
 
 dnsbench tries to open your browser at that address. If it does not, open
 <http://127.0.0.1:8080> yourself. Pick the domains, resolvers, and options, then
-click **Start benchmark**. **Stop** ends a run early, **Reset** clears the
-results, and **View results** switches to the results table.
+click **Start benchmark**. **Stop** ends a run early. **Reset** clears the
+results and restores the default settings.
 
 `-listen` defaults to `:8080`, which accepts connections from anywhere that can
 reach your machine. The dashboard has no authentication, and it runs lookups
@@ -101,7 +97,6 @@ your own machine, put it behind a firewall or a reverse proxy.
 ## Documentation
 
 - [CLI reference](docs/cli.md): flags, lookup behavior, input files, and report formats.
-- [Web UI development](webui/README.md): running and checking the dashboard.
 - [Contributing](AGENTS.md): build commands, conventions, and what to check.
 
 dnsbench uses the [MIT license](LICENSE).
