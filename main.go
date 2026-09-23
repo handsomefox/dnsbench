@@ -9,14 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/handsomefox/dnsbench/internal/termux"
 	"github.com/handsomefox/dnsbench/internal/web"
 	"github.com/phsym/console-slog"
 )
 
 func main() {
 	ctx := context.Background()
-	termux.UseCABundle()
 	config := parseFlags()
 
 	initLogger(config.LogType)

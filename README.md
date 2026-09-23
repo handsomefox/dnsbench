@@ -24,20 +24,21 @@ run `dnsbench` instead.
 
 ### On Android with Termux
 
-In [Termux](https://termux.dev), download the `Linux_arm64` archive and start
+In [Termux](https://termux.dev), download the `Android_arm64` archive and start
 the dashboard:
 
 ```bash
-curl -LO https://github.com/handsomefox/dnsbench/releases/latest/download/dnsbench_Linux_arm64.tar.gz
-tar -xzf dnsbench_Linux_arm64.tar.gz
+curl -LO https://github.com/handsomefox/dnsbench/releases/latest/download/dnsbench_Android_arm64.tar.gz
+tar -xzf dnsbench_Android_arm64.tar.gz
 ./dnsbench -ui
 ```
 
 The dashboard opens in the Android browser through `termux-open-url`, which
 the `termux-tools` package provides. If it does not open, go to
-<http://127.0.0.1:8080>. Inside Termux, dnsbench checks certificates against
-Termux's CA bundle, from the `ca-certificates` package. It notices Termux by
-the `PREFIX` that Termux sets, so on any other Linux it behaves as usual.
+<http://127.0.0.1:8080>. Use the Android
+build, not `Linux_arm64`: only the Android build finds Android's CA
+certificates, so the Linux build fails every DoT, DoH, and DoQ resolver
+there.
 
 ## Build
 

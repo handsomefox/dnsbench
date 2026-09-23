@@ -22,6 +22,13 @@ builds:
       - linux
       - windows
       - darwin
+      # For Termux. Only an Android build finds Android's CA certificates.
+      - android
+    ignore:
+      - goos: android
+        goarch: "386"
+      - goos: android
+        goarch: amd64
 
 archives:
   - formats: [tar.gz]
