@@ -6,7 +6,6 @@
 // with it.
 "use strict"
 
-const LOG_LIMIT = 100
 const AXIS_MIN_MS = 1
 const FAIL_GUTTER = 30 // px at the right of each trace for failed lookups
 const STORAGE_KEY = "dnsbench.setup.v1"
@@ -93,7 +92,6 @@ const state = {
 	lookups: 0,
 	axisMaxMs: 3000,
 	results: new Map(), // serverKey -> entry, see entryFor
-	log: [],
 	expanded: new Set(),
 	hiddenTransports: new Set(), // result filter
 }
@@ -718,7 +716,6 @@ function render() {
 	renderProgress(e)
 	renderSummary()
 	renderLadder()
-	renderLog()
 }
 
 function renderProgress(e) {
@@ -1128,22 +1125,6 @@ function renderDetail(entry, node) {
 	)
 }
 
-function renderLog() {
-	$("log-count").textContent = state.log.length ? `last ${state.log.length}` : ""
-	if (!document.querySelector("details.log").open) return
-	$("log").replaceChildren(
-		...state.log.map((entry) =>
-			el(
-				"li",
-				{ className: entry.error ? "failed" : "" },
-				el("span", { className: "who", textContent: entry.server }),
-				el("span", { className: "what", textContent: entry.domain }),
-				el("span", { className: "value", title: entry.error ?? "", textContent: entry.error ? errorKind(entry.error) : `${entry.blocked ? "blocked, " : ""}${formatMs(entry.latency)}` }),
-			),
-		),
-	)
-}
-
 // Events
 
 function clearRun() {
@@ -1152,7 +1133,6 @@ function clearRun() {
 	state.plannedLookups = 0
 	state.lookups = 0
 	state.results = new Map()
-	state.log = []
 	state.expanded = new Set()
 	state.hiddenTransports = new Set()
 	rowNodes.clear()
@@ -1184,8 +1164,6 @@ function handleEvent(msg) {
 			if (!server) break
 			const failed = typeof detail.error === "string"
 			state.lookups += 1
-			state.log.unshift({ server: server.name, domain: detail.domain, latency: detail.latency, blocked: detail.blocked === true, error: failed ? detail.error : null })
-			state.log.length = Math.min(state.log.length, LOG_LIMIT)
 
 			const entry = entryFor(server)
 			entry.stats = liveStats(entry.stats, detail.latency, failed, detail.attempts ?? 1, detail.blocked === true)
@@ -1549,7 +1527,6 @@ $("sort").addEventListener("change", () => {
 })
 $("export-csv").addEventListener("click", exportCSV)
 $("export-json").addEventListener("click", exportJSON)
-document.querySelector("details.log").addEventListener("toggle", queueRender)
 
 document.addEventListener("keydown", (event) => {
 	if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {

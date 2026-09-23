@@ -531,8 +531,7 @@ input[type="checkbox"] {
 
 .block,
 .ladder,
-.readouts,
-.log {
+.readouts {
 	background: var(--panel);
 	border: 1px solid var(--line);
 	border-radius: var(--r-panel);
@@ -1273,87 +1272,6 @@ input[type="checkbox"] {
 	font-size: 0.86rem;
 }
 
-/* Lookup log */
-
-.log summary {
-	display: flex;
-	gap: 8px;
-	align-items: baseline;
-	padding: 11px var(--pad);
-	color: var(--muted);
-	font-size: 0.72rem;
-	font-weight: 600;
-	letter-spacing: 0.1em;
-	text-transform: uppercase;
-	cursor: pointer;
-	list-style: none;
-}
-
-.log summary::-webkit-details-marker {
-	display: none;
-}
-
-.log summary::before {
-	width: 5px;
-	height: 5px;
-	border-right: 1.5px solid currentColor;
-	border-bottom: 1.5px solid currentColor;
-	transform: translateY(-2px) rotate(-45deg);
-	transition: transform 0.12s ease-out;
-	content: "";
-}
-
-.log[open] summary::before {
-	transform: translateY(-3px) rotate(45deg);
-}
-
-.log summary:hover {
-	color: var(--text);
-}
-
-.log summary .count {
-	letter-spacing: 0;
-	text-transform: none;
-}
-
-.log ol {
-	max-height: 360px;
-	margin: 0;
-	padding: 0 var(--pad) 12px;
-	overflow-y: auto;
-	list-style: none;
-	font-family: var(--mono);
-	font-size: 0.72rem;
-	font-stretch: 87.5%;
-	scrollbar-width: thin;
-}
-
-.log li {
-	display: grid;
-	grid-template-columns: minmax(0, 16em) minmax(0, 1fr) auto;
-	gap: 12px;
-	padding: 2px 0;
-	border-bottom: 1px solid var(--line);
-}
-
-.log li > span {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
-.log .what {
-	color: var(--muted);
-}
-
-.log .value {
-	text-align: right;
-}
-
-.log li.failed .value {
-	color: var(--fail);
-}
-
 /* One column: setup first, then results. Once a run exists, results first. */
 
 @media (max-width: 900px) {
@@ -1416,8 +1334,7 @@ input[type="checkbox"] {
 @media (prefers-reduced-motion: reduce) {
 	.progress span,
 	.caret,
-	.disclose summary::before,
-	.log summary::before {
+	.disclose summary::before {
 		transition: none;
 	}
 
