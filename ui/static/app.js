@@ -64,7 +64,7 @@ const PRESETS = [
 	},
 	{
 		id: "privacy",
-		name: "Privacy",
+		name: "Privacy DNS",
 		about: "No-logging operators over DoT and DoH.",
 		family: ["ipv4"], transport: ["dot", "doh"], category: ["Privacy"], major: false, primary: true, domains: "all", repeats: 5,
 	},

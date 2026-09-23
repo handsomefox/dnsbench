@@ -563,11 +563,22 @@ input[type="checkbox"] {
 	border: 0;
 }
 
+/* While a run goes, the setup dims once. Disabled buttons in it do not
+   dim a second time. */
 .setup fieldset:disabled .block > * {
-	opacity: 0.55;
+	opacity: 0.6;
+}
+
+.setup fieldset:disabled button:disabled {
+	opacity: 1;
 }
 
 @media (min-width: 901px) {
+	/* Equal padding above and below, so the column fits the window. */
+	.layout {
+		padding-bottom: 16px;
+	}
+
 	.setup {
 		position: sticky;
 		top: calc(var(--masthead-h, 52px) + 16px);
