@@ -25,7 +25,7 @@ resolver and domain lists are in [`data.go`](../data.go).
 | `-primary` | `false` | Uses only the first address of each built-in provider, such as `Cloudflare-1` and `Cloudflare-v6-1`. `-f` overrides it. |
 | `-family string` | `ipv4` | Address family of the built-in resolvers: `ipv4`, `ipv6`, or `all`. `-f` overrides it. |
 | `-proto string` | `plain` | Transport of the built-in resolvers: `plain`, `dot`, `doh`, `doq`, or `all`. `-f` overrides it. |
-| `-warmup int` | `0` | Warmup lookups before each measured lookup. Zero or less disables warmup. |
+| `-warmup int` | `0` | Unmeasured lookups of each domain before a resolver's measured lookups. Zero or less disables warmup. |
 | `-ui` | `false` | Serves the Web UI instead of running a CLI benchmark |
 | `-listen string` | `:8080` | Web UI listen address. The default accepts connections on every interface. |
 
@@ -62,9 +62,11 @@ The reported latency covers the successful attempt alone. It leaves out the
 earlier attempts, the backoff, and the time the lookup spent waiting for a
 concurrency slot.
 
-Warmup runs before every measured lookup, including each repeat, so `-warmup 2`
-with `-n 10` means twenty warmup lookups per domain. Warmup lookups use a
-one-second timeout, do not retry, and never reach the statistics.
+Warmup runs once per resolver, before its measured lookups. `-warmup 2` sends
+two lookups of each domain whatever `-n` is, so 54 domains mean 108 warmup
+lookups per resolver. They fill the resolver's cache and open the connection
+that DoH and DoQ reuse. Warmup lookups use a one-second timeout, do not retry,
+and never reach the statistics.
 
 ### DNS over TLS
 

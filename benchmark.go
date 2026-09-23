@@ -173,17 +173,14 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 		return calculateStats(nil, total, total)
 	}
 
+	warmUp(ctx, resolver, domains, config.WarmupRuns)
+
 	results := make(chan result, total)
 	errg, ctx := errgroup.WithContext(ctx)
 
 	for range config.Repeats {
 		for _, domain := range domains {
 			errg.Go(func() error {
-				// Do warmup for this domain if configured
-				if config.WarmupRuns > 0 {
-					doWarmupRuns(ctx, resolver, domain, config.WarmupRuns)
-				}
-
 				lat, err := resolver.QueryDNS(ctx, domain, config.LookupTimeout, ResolverRetryEnabled)
 				if err != nil {
 					results <- result{domain: domain, err: err}
@@ -225,31 +222,36 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	return calculateStats(allLatencies, errorCount, total)
 }
 
-func doWarmupRuns(ctx context.Context, resolver *Resolver, domain string, warmupRuns int) {
-	if warmupRuns <= 0 {
+// warmUp sends runs unmeasured lookups of each domain to resolver before
+// the measured lookups start. They fill the resolver's cache and, for DoH
+// and DoQ, open the connection the measured lookups reuse. Each has a
+// one-second timeout and no retries, and its result is discarded.
+func warmUp(ctx context.Context, resolver *Resolver, domains []string, runs int) {
+	if runs <= 0 {
 		return
 	}
 
 	slog.LogAttrs(ctx, slog.LevelDebug, "Performing warmup queries",
-		slog.Int("warmup_runs", warmupRuns),
-		slog.String("domain", domain),
+		slog.Int("warmup_runs", runs),
+		slog.Int("domains", len(domains)),
 		slog.String("resolver", resolver.serverAddr),
 	)
 
+	// QueryDNS holds the resolver's concurrency limit, so starting every
+	// lookup at once still sends at most that many at a time.
 	var wg sync.WaitGroup
-	wg.Add(warmupRuns)
-
-	for range warmupRuns {
-		go func() {
-			defer wg.Done()
-
-			// Perform a warmup query
-			if _, err := resolver.QueryDNS(ctx, domain, time.Second, ResolverRetryDisabled); err != nil {
-				slog.LogAttrs(ctx, slog.LevelDebug, "Warmup query failed", slogErr(err))
-			}
-		}()
+	for range runs {
+		for _, domain := range domains {
+			wg.Go(func() {
+				if _, err := resolver.QueryDNS(ctx, domain, time.Second, ResolverRetryDisabled); err != nil {
+					slog.LogAttrs(ctx, slog.LevelDebug, "Warmup query failed",
+						slog.String("domain", domain),
+						slogErr(err),
+					)
+				}
+			})
+		}
 	}
-
 	wg.Wait()
 
 	gcAndWait()

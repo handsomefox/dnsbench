@@ -505,7 +505,7 @@ function estimate() {
 	const domains = parseLines($("domains").value).length
 	const repeats = Math.max(1, Number($("repeats").value) || 1)
 	const warmup = Math.max(0, Number($("warmup").value) || 0)
-	return { resolvers, domains, repeats, lookups: resolvers * domains * repeats, warmups: resolvers * domains * repeats * warmup }
+	return { resolvers, domains, repeats, lookups: resolvers * domains * repeats, warmups: resolvers * domains * warmup }
 }
 
 function renderEstimate() {
