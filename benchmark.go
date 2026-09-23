@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"sort"
@@ -145,10 +146,27 @@ func benchmarkResolver(ctx context.Context, config *Config, server DNSServer, do
 	}
 
 	total := len(domains) * config.Repeats
-	results := make(chan result, total)
-
-	errg, ctx := errgroup.WithContext(ctx)
 	resolver := NewResolver(server.Addr, config.MaxConcurrency)
+
+	// Without a route, every attempt fails at once and the retries only add
+	// backoff. Fail every planned lookup now, so the reporter still sees one
+	// result per lookup.
+	if err := resolver.CheckRoute(ctx); err != nil {
+		err = fmt.Errorf("no route to resolver %s: %w", server.Addr, err)
+		slog.LogAttrs(ctx, slog.LevelWarn, "Skipping unreachable resolver",
+			slog.String("name", server.Name),
+			slogErr(err),
+		)
+		for range config.Repeats {
+			for _, domain := range domains {
+				reporter.OnQueryResult(server, domain, 0, err)
+			}
+		}
+		return calculateStats(nil, total, total)
+	}
+
+	results := make(chan result, total)
+	errg, ctx := errgroup.WithContext(ctx)
 
 	for range config.Repeats {
 		for _, domain := range domains {

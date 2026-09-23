@@ -36,16 +36,28 @@ To test every built-in resolver with more repeats and a longer timeout, run:
 ./bin/dnsbench -n 20 -t 5s
 ```
 
+The built-in resolvers use IPv4 by default. To test their IPv6 addresses, or
+both families in one run, pass `-family ipv6` or `-family all`:
+
+```bash
+./bin/dnsbench -major -family all -output table
+```
+
+If your host has no IPv6 route, dnsbench marks each IPv6 resolver as failed at
+once instead of retrying it.
+
 The built-in resolver and domain lists are in [`data.go`](data.go). Every flag,
 its default, and every report field is in the [CLI reference](docs/cli.md).
 
 ## Use your own resolvers and domains
 
-Write `resolvers.txt` with one `name;ip` pair per line:
+Write `resolvers.txt` with one `name;ip` pair per line. Addresses can be IPv4
+or IPv6:
 
 ```text
 Cloudflare-1;1.1.1.1
-Google-1;8.8.8.8
+Google-v6-1;2001:4860:4860::8888
+Router;fe80::1%eth0
 ```
 
 Write `domains.txt` with one domain per line:
@@ -62,7 +74,7 @@ Pass both files:
 ```
 
 Each file replaces the matching built-in list instead of adding to it, and `-f`
-overrides `-major`. For the validation rules, see
+overrides `-major` and `-family`. For the validation rules, see
 [input files](docs/cli.md#input-files).
 
 ## Save a report

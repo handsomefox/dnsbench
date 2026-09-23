@@ -30,6 +30,15 @@ func TestUIServer_BuildRunConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "IPv6 built-ins",
+			req:  runRequest{Options: runOptions{Family: "ipv6"}},
+		},
+		{
+			name:    "unknown family",
+			req:     runRequest{Options: runOptions{Family: "ipv5"}},
+			wantErr: "invalid address family",
+		},
+		{
 			name:    "hostname as resolver",
 			req:     runRequest{Resolvers: []DNSServer{{Name: "a", Addr: "dns.example.com"}}},
 			wantErr: "invalid resolver address",
@@ -147,12 +156,17 @@ func TestUIServer_BuiltinsDataIsland(t *testing.T) {
 		t.Fatal("builtins data island is not closed")
 	}
 
-	var got builtinLists
+	var got map[string][]DNSServer
 	if err := json.Unmarshal([]byte(raw), &got); err != nil {
 		t.Fatalf("data island is not valid JSON: %v\n%s", err, raw)
 	}
-	if len(got.Resolvers) != len(builtInResolvers) || len(got.MajorResolvers) != len(builtinMajorResolvers) {
-		t.Errorf("data island has %d and %d resolvers, want %d and %d",
-			len(got.Resolvers), len(got.MajorResolvers), len(builtInResolvers), len(builtinMajorResolvers))
+	// app.js builds these keys from the form, so they must exist verbatim.
+	for _, key := range []string{"false/ipv4", "false/ipv6", "false/all", "true/ipv4", "true/ipv6", "true/all"} {
+		if len(got[key]) == 0 {
+			t.Errorf("data island has no resolvers under %q", key)
+		}
+	}
+	if len(got) != 6 {
+		t.Errorf("data island has %d keys, want 6", len(got))
 	}
 }

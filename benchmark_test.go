@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"math"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestStats_IsValid(t *testing.T) {
@@ -224,5 +227,48 @@ func TestStats_MarshalJSON(t *testing.T) {
 				t.Errorf("json.Marshal() = %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+type countingReporter struct {
+	NoopReporter
+	failed atomic.Int32
+	err    atomic.Value
+}
+
+func (r *countingReporter) OnQueryResult(_ DNSServer, _ string, _ float64, err error) {
+	if err != nil {
+		r.failed.Add(1)
+		r.err.Store(err.Error())
+	}
+}
+
+// A resolver the host has no route to must fail at once, not after ten
+// attempts with backoff. The zoned link-local address names an interface
+// that does not exist, so the UDP connect fails on any host.
+func TestRunBenchmark_UnreachableResolverFailsFast(t *testing.T) {
+	cfg := &Config{Repeats: 3, LookupTimeout: time.Second, MaxConcurrency: 2}
+	servers := []DNSServer{{Name: "nowhere", Addr: "fe80::1%nosuchif0"}}
+	domains := []string{"example.com", "example.org"}
+	reporter := &countingReporter{}
+
+	start := time.Now()
+	results, err := runBenchmark(t.Context(), cfg, servers, domains, reporter)
+	if err != nil {
+		t.Fatalf("runBenchmark() error = %v", err)
+	}
+	if took := time.Since(start); took > time.Second {
+		t.Errorf("runBenchmark() took %v, want under a second", took)
+	}
+
+	stats := results[0].Stats
+	if stats.Count != 0 || stats.Errors != 6 || stats.Total != 6 {
+		t.Errorf("stats = %+v, want 0 successes and 6 errors of 6", stats)
+	}
+	if got := reporter.failed.Load(); got != 6 {
+		t.Errorf("reporter saw %d failed lookups, want 6", got)
+	}
+	if msg, ok := reporter.err.Load().(string); !ok || !strings.Contains(msg, "no route to resolver") {
+		t.Errorf("reported error = %q, want it to mention the missing route", msg)
 	}
 }

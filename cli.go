@@ -25,6 +25,7 @@ type Config struct {
 	LookupTimeout      time.Duration
 	Repeats            int
 	OnlyMajorResolvers bool
+	Family             AddrFamily
 	MaxConcurrency     int
 
 	// Output and logging
@@ -57,6 +58,39 @@ func (o OutputType) String() string {
 		return "json"
 	default:
 		return "default"
+	}
+}
+
+// AddrFamily selects built-in resolvers by address family.
+type AddrFamily int
+
+const (
+	FamilyIPv4 AddrFamily = iota
+	FamilyIPv6
+	FamilyAll
+)
+
+func (f AddrFamily) String() string {
+	switch f {
+	case FamilyIPv6:
+		return "ipv6"
+	case FamilyAll:
+		return "all"
+	default:
+		return "ipv4"
+	}
+}
+
+func parseFamily(s string) (AddrFamily, error) {
+	switch strings.ToLower(s) {
+	case "ipv4":
+		return FamilyIPv4, nil
+	case "ipv6":
+		return FamilyIPv6, nil
+	case "all":
+		return FamilyAll, nil
+	default:
+		return FamilyIPv4, fmt.Errorf("invalid address family %q: want ipv4, ipv6, or all", s)
 	}
 }
 
@@ -96,7 +130,7 @@ func run(ctx context.Context, config *Config) error {
 	slog.LogAttrs(ctx, slog.LevelInfo, "Loaded domains", slog.Int("count", len(domains)))
 
 	// Load DNS servers
-	servers, err := loadServers(config.ResolversFile, config.OnlyMajorResolvers)
+	servers, err := loadServers(config.ResolversFile, config.OnlyMajorResolvers, config.Family)
 	if err != nil {
 		return fmt.Errorf("loading servers: %w", err)
 	}
@@ -121,6 +155,7 @@ func parseFlags() *Config {
 	var (
 		outputType string
 		logType    string
+		family     string
 		warmupRuns int
 		serveUI    bool
 		listenAddr string
@@ -134,6 +169,7 @@ func parseFlags() *Config {
 	flag.StringVar(&logType, "log", "default", "Logging level: default, verbose, or disabled")
 	flag.IntVar(&config.MaxConcurrency, "c", max(runtime.NumCPU()/2, 2), "Maximum concurrent DNS queries")
 	flag.BoolVar(&config.OnlyMajorResolvers, "major", false, "Benchmark only major DNS resolvers")
+	flag.StringVar(&family, "family", "ipv4", "Address family of the built-in resolvers: ipv4, ipv6, or all")
 	flag.IntVar(&warmupRuns, "warmup", 0, "Warmup lookups to run before each measured lookup")
 	flag.BoolVar(&serveUI, "ui", false, "Start the embedded Web UI dashboard server instead of running the CLI benchmark")
 	flag.StringVar(&listenAddr, "listen", ":8080", "Address for the Web UI HTTP server (used with -ui)")
@@ -199,6 +235,13 @@ Examples:
 		fmt.Fprintf(os.Stderr, "Error: invalid output type %q\n", outputType)
 		os.Exit(1)
 	}
+
+	fam, err := parseFamily(family)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	config.Family = fam
 
 	config.WarmupRuns = warmupRuns
 	config.ServeUI = serveUI
@@ -271,20 +314,38 @@ func loadDomains(sitesFile string) ([]string, error) {
 	return domains, nil
 }
 
+// builtinServers lists the built-in resolvers that match onlyMajor and
+// family, in the order of the providers table.
+func builtinServers(onlyMajor bool, family AddrFamily) []DNSServer {
+	var servers []DNSServer
+	for _, p := range providers {
+		if onlyMajor && !p.major {
+			continue
+		}
+		if family != FamilyIPv6 {
+			for i, addr := range p.ipv4 {
+				servers = append(servers, DNSServer{Name: fmt.Sprintf("%s-%d", p.name, i+1), Addr: addr})
+			}
+		}
+		if family != FamilyIPv4 {
+			for i, addr := range p.ipv6 {
+				servers = append(servers, DNSServer{Name: fmt.Sprintf("%s-v6-%d", p.name, i+1), Addr: addr})
+			}
+		}
+	}
+	return servers
+}
+
 // loadServers loads DNS servers from a file or uses built-in resolvers.
 // Format: name;ip per line. Comments start with #.
-// If resolversFile is empty, built-in resolvers are used based on onlyMajor flag.
-func loadServers(resolversFile string, onlyMajor bool) ([]DNSServer, error) {
-	servers := make([]DNSServer, 0)
-
+// If resolversFile is empty, the built-in resolvers matching onlyMajor and
+// family are used. A file is used as written: the filters do not apply.
+func loadServers(resolversFile string, onlyMajor bool, family AddrFamily) ([]DNSServer, error) {
 	if resolversFile == "" {
-		if onlyMajor {
-			servers = append(servers, builtinMajorResolvers...)
-		} else {
-			servers = append(servers, builtInResolvers...)
-		}
-		return servers, nil
+		return builtinServers(onlyMajor, family), nil
 	}
+
+	servers := make([]DNSServer, 0)
 
 	//nolint:gosec // file path provided by user intentionally
 	file, err := os.Open(resolversFile)

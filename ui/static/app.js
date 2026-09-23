@@ -54,8 +54,10 @@ function useCustomResolvers() {
 	return document.querySelector('input[name="resolver-source"]:checked').value === "custom"
 }
 
+// builtinSelection picks the built-in list for the current filters. The
+// key must match builtinsKey in server.go.
 function builtinSelection() {
-	return $("only-major").checked ? builtins.majorResolvers : builtins.resolvers
+	return builtins[`${$("only-major").checked}/${$("family").value}`] ?? []
 }
 
 function formatMs(value) {
@@ -148,9 +150,9 @@ function renderResults() {
 				"tr",
 				{},
 				el("td", {}, el("strong", { textContent: server.name }), el("div", { className: "muted small", textContent: server.addr })),
-				el("td", {}, el("meter", { min: 0, max: 100, low: 90, high: 99, optimum: 100, value: rate }), ` ${rate.toFixed(1)}%`),
-				el("td", { textContent: formatMs(stats.mean) }),
-				el("td", { className: "small", textContent: `${formatMs(stats.min)} / ${formatMs(stats.max)}` }),
+				el("td", { className: "num" }, el("meter", { min: 0, max: 100, low: 90, high: 99, optimum: 100, value: rate }), ` ${rate.toFixed(1)}%`),
+				el("td", { className: "num", textContent: formatMs(stats.mean) }),
+				el("td", { className: "num small", textContent: `${formatMs(stats.min)} / ${formatMs(stats.max)}` }),
 			)
 		}),
 	)
@@ -280,6 +282,7 @@ async function startRun(event) {
 		concurrency: Number($("concurrency").value),
 		warmup: Number($("warmup").value),
 		onlyMajor: $("only-major").checked,
+		family: $("family").value,
 	}
 	// The new run's start event can arrive before the response. Clear the
 	// old run first, and let acceptEvent adopt the new run ID from either.

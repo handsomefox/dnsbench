@@ -8,7 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand/v2"
-	"net"
+	"net/netip"
 	"os"
 	"runtime"
 	"sort"
@@ -88,11 +88,16 @@ func printResultsTable(w io.Writer, results []BenchmarkResult, failed bool) {
 		return
 	}
 	if failed {
-		_, _ = fmt.Fprintln(w, "\nFailed resolvers:")
-		_, _ = fmt.Fprintf(w, "%-20s %-15s %10s %10s\n", "Resolver", "Address", "Errors", "Total")
+		// IPv6 addresses run longer than the 15 characters of an IPv4 one.
+		addrWidth := len("255.255.255.255")
 		for _, r := range results {
-			_, _ = fmt.Fprintf(w, "%-20s %-15s %10d %10d\n",
-				truncateString(r.Server.Name, 20), r.Server.Addr, r.Stats.Errors, r.Stats.Total)
+			addrWidth = max(addrWidth, len(r.Server.Addr))
+		}
+		_, _ = fmt.Fprintln(w, "\nFailed resolvers:")
+		_, _ = fmt.Fprintf(w, "%-20s %-*s %10s %10s\n", "Resolver", addrWidth, "Address", "Errors", "Total")
+		for _, r := range results {
+			_, _ = fmt.Fprintf(w, "%-20s %-*s %10d %10d\n",
+				truncateString(r.Server.Name, 20), addrWidth, r.Server.Addr, r.Stats.Errors, r.Stats.Total)
 		}
 		return
 	}
@@ -182,9 +187,12 @@ func isValidDomain(domain string) bool {
 }
 
 // isValidServerAddr reports whether addr is an IP literal without a port.
-// Resolver files and the Web UI API both accept only such addresses.
+// Resolver files and the Web UI API both accept only such addresses. An
+// IPv6 address may carry a zone, as in fe80::1%eth0, to reach a link-local
+// resolver such as a home router.
 func isValidServerAddr(addr string) bool {
-	return net.ParseIP(addr) != nil
+	_, err := netip.ParseAddr(addr)
+	return err == nil
 }
 
 func truncateString(s string, maxLen int) string {

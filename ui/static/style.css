@@ -102,6 +102,13 @@ code {
 	align-items: start;
 }
 
+/* Results carry IPv6 addresses and four numbers, so give them the room. */
+@media (min-width: 1200px) {
+	.grid {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.4fr);
+	}
+}
+
 .panel {
 	background: var(--panel);
 	border: 1px solid var(--border);
@@ -330,7 +337,11 @@ td div {
 	overflow-wrap: anywhere;
 }
 
+td.num {
+	white-space: nowrap;
+}
+
 meter {
-	width: 60px;
+	width: 48px;
 	vertical-align: middle;
 }

@@ -18,6 +18,8 @@ const (
 
 type Resolver struct {
 	netResolver *net.Resolver
+	dialer      *net.Dialer
+	hostPort    string
 	serverAddr  string
 	concurrency int
 	sem         chan struct{}
@@ -42,10 +44,23 @@ func newResolver(serverAddr, hostPort string, concurrency int) *Resolver {
 				return dialer.DialContext(ctx, network, hostPort)
 			},
 		},
+		dialer:      dialer,
+		hostPort:    hostPort,
 		serverAddr:  serverAddr,
 		concurrency: concurrency,
 		sem:         make(chan struct{}, concurrency),
 	}
+}
+
+// CheckRoute reports whether this host can reach the resolver at all.
+// Connecting a UDP socket sends nothing, but it fails at once when there is
+// no route, as with an IPv6 resolver on an IPv4-only host.
+func (r *Resolver) CheckRoute(ctx context.Context) error {
+	conn, err := r.dialer.DialContext(ctx, "udp", r.hostPort)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
 }
 
 func (r *Resolver) QueryDNS(ctx context.Context, domain string, timeout time.Duration, retry ResolverRetry) (time.Duration, error) {

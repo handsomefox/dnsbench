@@ -25,11 +25,12 @@ var uiFS embed.FS
 var pageTemplate = template.Must(template.ParseFS(uiFS, "ui/index.html.tmpl"))
 
 type runOptions struct {
-	Repeats     int  `json:"repeats"`
-	TimeoutMs   int  `json:"timeoutMs"`
-	Concurrency int  `json:"concurrency"`
-	Warmup      int  `json:"warmup"`
-	OnlyMajor   bool `json:"onlyMajor"`
+	Repeats     int    `json:"repeats"`
+	TimeoutMs   int    `json:"timeoutMs"`
+	Concurrency int    `json:"concurrency"`
+	Warmup      int    `json:"warmup"`
+	OnlyMajor   bool   `json:"onlyMajor"`
+	Family      string `json:"family"`
 }
 
 type runRequest struct {
@@ -39,16 +40,28 @@ type runRequest struct {
 }
 
 // pageData fills ui/index.html.tmpl. Builtins goes into a JSON data island
-// that ui/static/app.js reads to preview the built-in resolver lists.
+// that ui/static/app.js reads to preview the built-in resolvers. It holds
+// every combination of the filters, keyed by builtinsKey, so the preview
+// always matches what buildRunConfig runs.
 type pageData struct {
 	Domains  string
 	Options  runOptions
-	Builtins builtinLists
+	Builtins map[string][]DNSServer
 }
 
-type builtinLists struct {
-	Resolvers      []DNSServer `json:"resolvers"`
-	MajorResolvers []DNSServer `json:"majorResolvers"`
+// builtinsKey must match the key that app.js builds in builtinSelection.
+func builtinsKey(onlyMajor bool, family AddrFamily) string {
+	return fmt.Sprintf("%t/%s", onlyMajor, family)
+}
+
+func builtinsByFilter() map[string][]DNSServer {
+	lists := make(map[string][]DNSServer)
+	for _, onlyMajor := range []bool{false, true} {
+		for _, family := range []AddrFamily{FamilyIPv4, FamilyIPv6, FamilyAll} {
+			lists[builtinsKey(onlyMajor, family)] = builtinServers(onlyMajor, family)
+		}
+	}
+	return lists
 }
 
 type uiServer struct {
@@ -140,11 +153,9 @@ func (s *uiServer) handleIndex(w http.ResponseWriter, _ *http.Request) {
 			Concurrency: s.baseConfig.MaxConcurrency,
 			Warmup:      s.baseConfig.WarmupRuns,
 			OnlyMajor:   s.baseConfig.OnlyMajorResolvers,
+			Family:      s.baseConfig.Family.String(),
 		},
-		Builtins: builtinLists{
-			Resolvers:      builtInResolvers,
-			MajorResolvers: builtinMajorResolvers,
-		},
+		Builtins: builtinsByFilter(),
 	}
 
 	// Render into a buffer so a template error still produces a clean 500.
@@ -261,6 +272,13 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 	}
 	cfg.WarmupRuns = req.Options.Warmup
 	cfg.OnlyMajorResolvers = req.Options.OnlyMajor
+	if req.Options.Family != "" {
+		family, err := parseFamily(req.Options.Family)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		cfg.Family = family
+	}
 
 	domains := req.Domains
 	if len(domains) == 0 {
@@ -282,11 +300,7 @@ func (s *uiServer) buildRunConfig(req *runRequest) (*Config, []DNSServer, []stri
 		}
 	}
 	if len(servers) == 0 {
-		if cfg.OnlyMajorResolvers {
-			servers = builtinMajorResolvers
-		} else {
-			servers = builtInResolvers
-		}
+		servers = builtinServers(cfg.OnlyMajorResolvers, cfg.Family)
 	}
 
 	return &cfg, servers, domains, nil
