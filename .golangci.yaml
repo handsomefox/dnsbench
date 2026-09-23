@@ -16,6 +16,14 @@ formatters:
 
 linters:
   default: none
+  exclusions:
+    rules:
+      # In the Android build, os.Args flows into os.Stat here, and gosec
+      # reads that as path traversal. dropLinkerArg only compares two paths
+      # the program was started with, and reads neither.
+      - path: argv\.go
+        linters: [gosec]
+        text: G703
   settings:
     revive:
       rules:

@@ -35,10 +35,9 @@ tar -xzf dnsbench_Android_arm64.tar.gz
 
 The dashboard opens in the Android browser through `termux-open-url`, which
 the `termux-tools` package provides. If it does not open, go to
-<http://127.0.0.1:8080>. Use the Android
-build, not `Linux_arm64`: only the Android build finds Android's CA
-certificates, so the Linux build fails every DoT, DoH, and DoQ resolver
-there.
+<http://127.0.0.1:8080>. Use the Android build, not `Linux_arm64`. Termux on
+Android 10 and later refuses the Linux build with `has unexpected e_type: 2`,
+and only the Android build finds Android's CA certificates.
 
 ## Build
 

@@ -22,7 +22,9 @@ builds:
       - linux
       - windows
       - darwin
-      # For Termux. Only an Android build finds Android's CA certificates.
+      # For Termux. Termux on Android 10 and later loads programs with
+      # Android's linker64, which runs only position-independent builds, as
+      # an Android build is. It also finds Android's CA certificates.
       - android
     ignore:
       - goos: android
