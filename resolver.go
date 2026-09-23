@@ -18,13 +18,19 @@ const (
 
 type Resolver struct {
 	netResolver *net.Resolver
-	netDialer   *net.Dialer
 	serverAddr  string
 	concurrency int
 	sem         chan struct{}
 }
 
 func NewResolver(serverAddr string, concurrency int) *Resolver {
+	return newResolver(serverAddr, net.JoinHostPort(serverAddr, "53"), concurrency)
+}
+
+// newResolver sends every query to hostPort. Go's resolver asks for "udp"
+// first and for "tcp" when the UDP answer comes back truncated, so Dial
+// keeps the network it is given.
+func newResolver(serverAddr, hostPort string, concurrency int) *Resolver {
 	dialer := &net.Dialer{}
 	if concurrency < 1 {
 		concurrency = 1
@@ -32,11 +38,10 @@ func NewResolver(serverAddr string, concurrency int) *Resolver {
 	return &Resolver{
 		netResolver: &net.Resolver{
 			PreferGo: true,
-			Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return dialer.DialContext(ctx, "udp", net.JoinHostPort(serverAddr, "53"))
+			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				return dialer.DialContext(ctx, network, hostPort)
 			},
 		},
-		netDialer:   dialer,
 		serverAddr:  serverAddr,
 		concurrency: concurrency,
 		sem:         make(chan struct{}, concurrency),
