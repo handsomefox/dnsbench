@@ -13,7 +13,7 @@ table, CSV, or JSON, and an embedded Web UI shows a run while it happens.
 
 Download the archive for your system from the
 [latest release](https://github.com/handsomefox/dnsbench/releases/latest) and
-extract it, or install with Go 1.27.1 or later:
+extract it, or install with Go 1.27.3 or later:
 
 ```bash
 go install github.com/handsomefox/dnsbench@latest
@@ -218,7 +218,7 @@ and only the Android build finds Android's CA certificates.
 
 ## Build from source
 
-You need Go 1.27.1 or later.
+You need Go 1.27.3 or later.
 
 ```bash
 git clone https://github.com/handsomefox/dnsbench.git

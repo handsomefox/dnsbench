@@ -1,6 +1,6 @@
 module github.com/handsomefox/dnsbench
 
-go 1.27.1
+go 1.27.3
 
 require (
 	github.com/phsym/console-slog v0.3.1
