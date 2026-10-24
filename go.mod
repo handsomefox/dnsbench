@@ -4,7 +4,7 @@ go 1.27.3
 
 require (
 	github.com/phsym/console-slog v0.3.1
-	github.com/quic-go/quic-go v0.63.0
+	github.com/quic-go/quic-go v0.64.0
 	golang.org/x/net v0.61.0
 	golang.org/x/sync v0.23.0
 )
