@@ -1,7 +1,7 @@
 # dnsbench
 
 [![CI](https://github.com/handsomefox/dnsbench/actions/workflows/ci.yml/badge.svg)](https://github.com/handsomefox/dnsbench/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 dnsbench measures how fast and how reliably DNS resolvers answer from your
 machine. It asks every resolver for the same list of domains, taking turns
@@ -235,4 +235,4 @@ in `ui/`. The binary embeds all of them, so the build needs no Node.js.
 - [CLI reference](docs/cli.md): flags, lookup behavior, input files, and report formats.
 - [Contributing](AGENTS.md): checks, the dashboard, and conventions.
 
-dnsbench uses the [MIT license](LICENSE).
+dnsbench uses the [Apache License 2.0](LICENSE). Releases up to v1.9.1 are under the MIT license.
